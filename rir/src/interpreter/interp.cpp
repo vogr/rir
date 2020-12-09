@@ -12,6 +12,7 @@
 #include "safe_force.h"
 #include "utils/Pool.h"
 #include "utils/measuring.h"
+#include "../utils/FunctionCallLogs.h"
 
 #include <assert.h>
 #include <deque>
@@ -1039,10 +1040,12 @@ RIR_INLINE SEXP rirCall(CallContext& call, InterpreterInstance* ctx) {
 
     auto table = DispatchTable::unpack(body);
 
+
     inferCurrentContext(call, table->baseline()->signature().formalNargs(),
                         ctx);
     Function* fun = dispatch(call, table);
     fun->registerInvocation();
+    Function* prevFun = fun;
 
     if (!isDeoptimizing() && RecompileHeuristic(table, fun)) {
         Context given = call.givenContext;
@@ -1057,9 +1060,23 @@ RIR_INLINE SEXP rirCall(CallContext& call, InterpreterInstance* ctx) {
             if (given.includes(pir::Compiler::minimalContext)) {
                 DoRecompile(fun, call.ast, call.callee, given, ctx);
                 fun = dispatch(call, table);
+
+                if (getenv("PIR_ANALYSIS_LOGS")) {
+                    std::stringstream str1, str2;
+                    fun->body()->disassemble(str1);
+                    prevFun->body()->disassemble(str2);
+                    bool changeInPIR = (str1.str() != str2.str());
+
+                    FunctionCallLogs::putCompilationInfo(call, fun, changeInPIR);
+                }
             }
         }
     }
+
+    if (getenv("PIR_ANALYSIS_LOGS")) {
+        FunctionCallLogs::recordCallLog(call, fun);
+    }
+
     bool needsEnv = fun->signature().envCreation ==
                     FunctionSignature::Environment::CallerProvided;
 

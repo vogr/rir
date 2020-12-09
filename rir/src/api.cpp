@@ -300,6 +300,14 @@ SEXP pirCompile(SEXP what, const Context& assumptions, const std::string& name,
     pir::Module* m = new pir::Module;
     pir::StreamLogger logger(debug);
     logger.title("Compiling " + name);
+
+    if(getenv("PIR_COMPILATION_LOGS"))
+    {
+        std::stringstream ss;
+        ss << name << " " << const_cast<Context&>(assumptions);
+        std::cerr <<"----->>>>> Compile: "<< ss.str() <<"\n";
+    }
+
     pir::Compiler cmp(m, logger);
     pir::Backend backend(logger, name);
     cmp.compileClosure(what, name, assumptions, true,
