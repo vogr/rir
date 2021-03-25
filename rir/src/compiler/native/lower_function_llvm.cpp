@@ -2436,13 +2436,18 @@ void LowerFunctionLLVM::compile() {
 
                     switch (b->builtinId) {
                     case blt("dim"): {
-                        if (irep == t::SEXP) {
-                            setVal(i,
-                                   call(NativeBuiltins::get(
-                                            NativeBuiltins::Id::getAttrb),
-                                        {a, constant(R_DimSymbol, t::SEXP)}));
+                        if (!i->arg(0).val()->type.maybeObj()) {
+                            if (irep == t::SEXP) {
+                                setVal(
+                                    i,
+                                    call(NativeBuiltins::get(
+                                             NativeBuiltins::Id::getAttrb),
+                                         {a, constant(R_DimSymbol, t::SEXP)}));
+                            } else {
+                                setVal(i, constant(R_NilValue, orep));
+                            }
                         } else {
-                            setVal(i, constant(R_NilValue, orep));
+                            done = false;
                         }
                         break;
                     }
@@ -2698,8 +2703,12 @@ void LowerFunctionLLVM::compile() {
                     case blt("as.character"):
                         if (irep == Representation::Sexp) {
                             setVal(i, createSelect2(
-                                          builder.CreateICmpEQ(sexptype(a),
-                                                               c(STRSXP)),
+                                          builder.CreateAnd(
+                                              builder.CreateICmpEQ(
+                                                  attr(a), constant(R_NilValue,
+                                                                    t::SEXP)),
+                                              builder.CreateICmpEQ(sexptype(a),
+                                                                   c(STRSXP))),
                                           [&]() { return a; },
                                           [&]() { return callTheBuiltin(); }));
                         } else {
@@ -2708,9 +2717,20 @@ void LowerFunctionLLVM::compile() {
                         break;
                     case blt("as.vector"):
                         if (irep == Representation::Sexp) {
-                            setVal(i, createSelect2(
-                                          isVector(a), [&]() { return a; },
-                                          [&]() { return callTheBuiltin(); }));
+                            setVal(i,
+                                   createSelect2(
+                                       builder.CreateAnd(
+                                           builder.CreateICmpEQ(
+                                               attr(a),
+                                               constant(R_NilValue, t::SEXP)),
+                                           isVector(a)),
+                                       [&]() {
+                                           return builder.CreateSelect(
+                                               builder.CreateICmpEQ(
+                                                   vectorLength(a), c(0, 64)),
+                                               constant(R_NilValue, orep), a);
+                                       },
+                                       [&]() { return callTheBuiltin(); }));
                         } else {
                             setVal(i, convert(a, i->type));
                         }
