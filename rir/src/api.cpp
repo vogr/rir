@@ -551,6 +551,10 @@ REXPORT SEXP rirCreateSimpleIntContext() {
     return res;
 }
 
+REXPORT SEXP rlang_is_reference(SEXP x, SEXP y) {
+    return Rf_ScalarLogical(x == y);
+}
+
 bool startup() {
     initializeRuntime();
     return true;

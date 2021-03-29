@@ -29,4 +29,6 @@ REXPORT SEXP rirDeserialize(SEXP file);
 REXPORT SEXP rirSetUserContext(SEXP f, SEXP udc);
 REXPORT SEXP rirCreateSimpleIntContext();
 
+REXPORT SEXP rlang_is_reference(SEXP x, SEXP y);
+
 #endif // API_H_
