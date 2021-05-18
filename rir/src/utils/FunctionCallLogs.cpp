@@ -18,8 +18,7 @@ struct LoggingFunction {
 
     Context toContext(unsigned long iContext) {
         Context cContext;
-        #pragma GCC diagnostic ignored "-Wclass-memaccess"
-        memcpy(&cContext, &iContext, sizeof(iContext));
+        memcpy(static_cast<void*>(&cContext), &iContext, sizeof(iContext));
         return cContext;
     }
 
