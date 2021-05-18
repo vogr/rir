@@ -122,7 +122,7 @@ size_t FunctionCallLogs::getASTHash(SEXP closure) {
     if((functionASTHash->find(closure)) != (functionASTHash->end()))
         return (*functionASTHash)[closure];
     assert(isValidClosureSEXP(closure));
-    std::string fBody = Print::dumpSexp(closure, ULLONG_MAX);
+    std::string fBody = Print::dumpSexp(closure);
     for (int i = fBody.length(); i >= 0; i--) {
         if (fBody[i] == '<') {
             if(fBody[i + 1] == 'e') {
