@@ -107,6 +107,7 @@ struct Context {
     RIR_INLINE void remove(Assumption a) { flags.reset(a); }
     RIR_INLINE bool includes(Assumption a) const { return flags.includes(a); }
     RIR_INLINE bool includes(const Flags& a) const { return flags.includes(a); }
+    RIR_INLINE bool includes(TypeAssumption a) const { return typeFlags.includes(a); }
 
 #define TYPE_ASSUMPTIONS(Type)                                                 \
     static constexpr std::array<TypeAssumption, NUM_TYPED_ARGS>                \
