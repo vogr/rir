@@ -28,10 +28,13 @@ namespace rir {
 			ofstream myfile;
 
 			FileLogger() {
-				auto timenow = chrono::system_clock::to_time_t(chrono::system_clock::now());
-				string runId = (string)ctime(&timenow);
+				// use ISO 8601 date as log name
+				time_t timenow = chrono::system_clock::to_time_t(chrono::system_clock::now());
+				stringstream runId_ss;
+				runId_ss << put_time( localtime( &timenow ), "%FT%T%z" );
+				string runId = runId_ss.str();
 
-				myfile.open("profile/"+runId+".csv");
+				myfile.open("profile/" + runId + ".csv");
 				myfile << "Sno,id,name,type,callCount,callContexts,PIRCompiled\n";
 
 			}
