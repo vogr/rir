@@ -37,12 +37,38 @@ namespace rir {
 			}
 
 			string getFunctionName(CallContext& call) {
+				static const SEXP double_colons = Rf_install("::");
+				static const SEXP triple_colons = Rf_install(":::");
 				SEXP lhs = CAR(call.ast);
-				SEXP name = R_NilValue;
+
+				string name;
+
 				if (TYPEOF(lhs) == SYMSXP)
-					name = lhs;
-				string nameStr = CHAR(PRINTNAME(name));
-				return nameStr;
+					name = CHAR(PRINTNAME(lhs));
+				else if (TYPEOF(lhs) == LANGSXP && ((CAR(lhs) == double_colons) || (CAR(lhs) == triple_colons))) {
+					SEXP fun1 = CAR(lhs);
+					SEXP pkg = CADR(lhs);
+					SEXP fun2 = CADDR(lhs);
+					assert(TYPEOF(pkg) == SYMSXP && TYPEOF(fun2) == SYMSXP);
+					string fun1_name = CHAR(PRINTNAME(fun1));
+					string pkg_name = CHAR(PRINTNAME(pkg));
+					string fun2_name = CHAR(PRINTNAME(fun2));
+					name = pkg_name + fun1_name + fun2_name;
+				} else {
+					/*
+						TODO: Find a way to recover the name of named functions passed anonymously.
+						This mechanism would also handle `::` and `:::`. MWE:
+
+							F <- function() { identity }
+							for (i in 1:10) { F()(1) }
+					*/
+					static int anon_fun_counter = 0;
+					stringstream ss;
+					ss << "`ANONYMOUS_FUNCTION_" << anon_fun_counter << "`";
+					anon_fun_counter++;
+					name = ss.str();
+				}
+				return name;
 			}
 
 			string getFunType(int type) {
