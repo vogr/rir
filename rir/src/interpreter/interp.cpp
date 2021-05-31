@@ -3926,6 +3926,10 @@ SEXP rirApplyClosure(SEXP ast, SEXP op, SEXP arglist, SEXP rho,
     call.arglist = arglist;
     call.safeForceArgs();
 
+    ContextualProfiling::createCallEntry(
+      call
+    );
+
     auto res = rirCall(call, ctx);
     ostack_popn(ctx, call.passedArgs);
     return res;
