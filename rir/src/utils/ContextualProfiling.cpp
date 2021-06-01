@@ -71,11 +71,23 @@ namespace rir {
 				myfile << "Sno,id,name,type,callCount,callContexts,PIRCompiled\n";
 			}
 
+			static size_t getEntryKey(CallContext& call) {
+				/* Identify a function by the SEXP of its BODY. For nested functions, The
+				   enclosing CLOSXP changes every time (because the CLOENV also changes):
+				       f <- function {
+				         g <- function() { 3 }
+						 g()
+					   }
+					Here the BODY of g is always the same SEXP, but a new CLOSXP is used
+					every time f is called.
+				*/
+				return reinterpret_cast<size_t>(BODY(call.callee));
+			}
+
 			string getFunctionName(CallContext& call) {
 				static const SEXP double_colons = Rf_install("::");
 				static const SEXP triple_colons = Rf_install(":::");
-
-				size_t const currentKey = (size_t) call.callee;
+				size_t const currentKey = getEntryKey(call);
 				SEXP const lhs = CAR(call.ast);
 
 				if (names.count(currentKey) == 0 || names[currentKey]->is_anon() ) {
@@ -133,7 +145,7 @@ namespace rir {
 			// }
 
 			void addContextData(CallContext& call, string data) {
-				size_t currentKey = (size_t) call.callee;
+				size_t currentKey = getEntryKey(call);
 				// current call context has not been recorded before
 				if (callContexts.find(currentKey) == callContexts.end()) {
 					set<string> currContext;
@@ -151,7 +163,7 @@ namespace rir {
 			}
 
 			void createEntry(CallContext& call) {
-				size_t currentKey = (size_t) call.callee;
+				size_t currentKey = getEntryKey(call);
 				string funName = getFunctionName(call);
 				// encounter first call
 				if (!(std::count(entries.begin(), entries.end(), currentKey))) {
