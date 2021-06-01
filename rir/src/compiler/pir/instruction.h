@@ -955,6 +955,7 @@ class FLIE(LdFun, 2, Effects::Any()) {
 class FLIE(LdVar, 1, Effects() | Effect::Error | Effect::ReadsEnv) {
   public:
     SEXP varName;
+    bool forUpdate = false;
 
     LdVar(const char* name, Value* env)
         : FixedLenInstructionWithEnvSlot(PirType::any(), env),
@@ -1212,7 +1213,12 @@ class FLIE(MkFunCls, 1, Effects::None()) {
 
     int minReferenceCount() const override { return MAX_REFCOUNT; }
 
-    size_t gvnBase() const override { return hash_combine(tagHash(), cls); }
+    size_t gvnBase() const override {
+        // Lazyly compiled cls might be still missing
+        if (!cls)
+            return 0;
+        return hash_combine(tagHash(), cls);
+    }
 };
 
 class FLIE(Force, 3, Effects::Any()) {
