@@ -27,13 +27,20 @@ class ContextualProfiling {
     static void addRirCallData(
       size_t,
       std::string,
-      Context,
-      bool
+      Context
     );
     static void addFunctionDispatchInfo(
       size_t,
       Context,
       Function
+    );
+    static void countSuccessfulCompilation(
+      SEXP,
+      Context const&
+    );
+    static void countFailedCompilation(
+      SEXP,
+      Context const&
     );
 };
 

@@ -56,7 +56,8 @@ namespace rir {
 		unordered_map<size_t, string> lNames; // lNames
 		unordered_map<size_t, set<Context>> lContexts; // lContexts
 		unordered_map<size_t, int> lContextCallCount; // lContextCallCount
-		unordered_map<size_t, int> lContextCompilationTriggerCount; // lContextCompilationTriggerCount
+		unordered_map<size_t, int> lContextSuccessfulCompilationCount;
+		unordered_map<size_t, int> lContextFailedCompilationCount;
 
 		unordered_map<size_t, set<Context>> lDispatchedFunctions; // lDispatchedFunctions
 		unordered_map<size_t, int> lDispatchedFunctionsCount; // lDispatchedFunctionsCount
@@ -72,10 +73,10 @@ namespace rir {
 				string runId = runId_ss.str();
 
 				myfile.open("profile/" + runId + ".csv");
-				myfile << "SNO,ID,NAME,PIR_COMPILER_TRIGGERED,CONTEXT_CALLED,CALL TypeFlags,CALL Assumptions,DISPATCHED FUNCTIONS\n";
+				myfile << "SNO,ID,NAME,CMP_SUCCESS,CMP_FAIL,CONTEXT_CALLED,CALL TypeFlags,CALL Assumptions,DISPATCHED FUNCTIONS\n";
 			}
 
-			static size_t getEntryKey(CallContext& call) {
+			static size_t getEntryKey(SEXP callee) {
 				/* Identify a function by the SEXP of its BODY. For nested functions, The
 				   enclosing CLOSXP changes every time (because the CLOENV also changes):
 				       f <- function {
@@ -85,13 +86,13 @@ namespace rir {
 					Here the BODY of g is always the same SEXP, but a new CLOSXP is used
 					every time f is called.
 				*/
-				return reinterpret_cast<size_t>(BODY(call.callee));
+				return reinterpret_cast<size_t>(BODY(callee));
 			}
 
 			string getFunctionName(CallContext& call) {
 				static const SEXP double_colons = Rf_install("::");
 				static const SEXP triple_colons = Rf_install(":::");
-				size_t const currentKey = getEntryKey(call);
+				size_t const currentKey = getEntryKey(call.callee);
 				SEXP const lhs = CAR(call.ast);
 
 				if (names.count(currentKey) == 0 || names[currentKey]->is_anon() ) {
@@ -152,8 +153,7 @@ namespace rir {
 			void createRirCallEntry(
 				size_t id,
 				std::string name,
-				Context context,
-				bool trigger
+				Context context
 			) {
 				lIds.insert(id);
 				lNames[id] = name;
@@ -173,16 +173,6 @@ namespace rir {
 				} else {
 					lContextCallCount[getContextId(id, context)] = lContextCallCount[getContextId(id, context)] + 1;
 				}
-
-				if(!trigger) return; // dont increment if no pirCompilationTrigger
-
-				if (lContextCompilationTriggerCount.find(getContextId(id, context)) == lContextCompilationTriggerCount.end()) {
-					lContextCompilationTriggerCount[getContextId(id, context)] = 1;
-				} else {
-					lContextCompilationTriggerCount[getContextId(id, context)] = lContextCompilationTriggerCount[getContextId(id, context)] + 1;
-				}
-
-
 			}
 
 			void addFunctionDispatchInfo(
@@ -208,6 +198,36 @@ namespace rir {
 					lDispatchedFunctionsCount[funContextId] = lDispatchedFunctionsCount[funContextId] + 1;
 				}
 			}
+
+
+			void countSuccessfulCompilation(
+				SEXP callee,
+				Context const& assumptions
+			) {
+				size_t entry_key = getEntryKey(callee);
+				size_t context_call_key = getContextId(entry_key, assumptions);
+
+				if(! lContextSuccessfulCompilationCount.count(context_call_key)) {
+					lContextSuccessfulCompilationCount.emplace(context_call_key, 1);
+				} else {
+					lContextSuccessfulCompilationCount.at(context_call_key)++;
+				}
+			}
+
+			void countFailedCompilation(
+				SEXP callee,
+				Context const& assumptions
+			) {
+				size_t entry_key = getEntryKey(callee);
+				size_t context_call_key = getContextId(entry_key, assumptions);
+
+				if(! lContextFailedCompilationCount.count(context_call_key)) {
+					lContextFailedCompilationCount.emplace(context_call_key, 1);
+				} else {
+					lContextFailedCompilationCount.at(context_call_key)++;
+				}
+			}
+
 
 			std::string getContextString(Context& c, bool del) {
 				stringstream contextString;
@@ -313,9 +333,14 @@ namespace rir {
 
 						stringstream contextsDispatched;
 
-						int currContextPIRTriggerCount = 0;
-						if (lContextCompilationTriggerCount.find(currContextId) != lContextCompilationTriggerCount.end()) {
-							currContextPIRTriggerCount = lContextCompilationTriggerCount[currContextId];
+						int successful_cmp_count = 0;
+						if (lContextSuccessfulCompilationCount.count(currContextId)) {
+							successful_cmp_count = lContextSuccessfulCompilationCount.at(currContextId);
+						}
+
+						int failed_cmp_count = 0;
+						if (lContextFailedCompilationCount.count(currContextId)) {
+							failed_cmp_count = lContextFailedCompilationCount.at(currContextId);
 						}
 
 						// iterate over dispatched functions under this context
@@ -336,7 +361,9 @@ namespace rir {
 							<< del
 							<< name // name
 							<< del
-							<< currContextPIRTriggerCount // call context PIR trigger count
+							<< successful_cmp_count // number of successful compilations in this context
+							<< del
+							<< failed_cmp_count // number of failed compilations in this context
 							<< del
 							<< currContextCallCount // call context count
 							<< del
@@ -384,7 +411,7 @@ std::string ContextualProfiling::getFunctionName(CallContext& cc) {
 
 size_t ContextualProfiling::getEntryKey(CallContext& cc) {
 	if(fileLogger) {
-		return fileLogger->getEntryKey(cc);
+		return fileLogger->getEntryKey(cc.callee);
 	} else {
 		return 0;
 	}
@@ -393,11 +420,10 @@ size_t ContextualProfiling::getEntryKey(CallContext& cc) {
 void ContextualProfiling::addRirCallData(
 	size_t id,
 	std::string name,
-	Context context,
-	bool trigger
+	Context context
 ) {
 	if(fileLogger) {
-		return fileLogger->createRirCallEntry(id, name, context, trigger);
+		return fileLogger->createRirCallEntry(id, name, context);
 	}
 }
 
@@ -408,6 +434,25 @@ void ContextualProfiling::addFunctionDispatchInfo(
 ) {
 	if(fileLogger) {
 		return fileLogger->addFunctionDispatchInfo(id, contextCaller, f);
+	}
+}
+
+
+void ContextualProfiling::countSuccessfulCompilation(
+	SEXP callee,
+	Context const& assumptions
+) {
+	if (fileLogger) {
+		fileLogger->countSuccessfulCompilation(callee, assumptions);
+	}
+}
+
+void ContextualProfiling::countFailedCompilation(
+	SEXP callee,
+	Context const& assumptions
+) {
+	if (fileLogger) {
+		fileLogger->countFailedCompilation(callee, assumptions);
 	}
 }
 

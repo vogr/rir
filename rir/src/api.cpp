@@ -14,6 +14,8 @@
 #include "interpreter/interp_incl.h"
 #include "ir/BC.h"
 #include "ir/Compiler.h"
+#include "utils/ContextualProfiling.h"
+
 
 #include <cassert>
 #include <cstdio>
@@ -309,6 +311,8 @@ SEXP pirCompile(SEXP what, const Context& assumptions, const std::string& name,
 
                            auto fun = backend.getOrCompile(c);
 
+                            ContextualProfiling::countSuccessfulCompilation(what,assumptions);
+
                            // Install
                            if (dryRun)
                                return;
@@ -317,7 +321,8 @@ SEXP pirCompile(SEXP what, const Context& assumptions, const std::string& name,
                            DispatchTable::unpack(BODY(what))->insert(fun);
                        },
                        [&]() {
-                           if (debug.includes(pir::DebugFlag::ShowWarnings))
+                            ContextualProfiling::countFailedCompilation(what,assumptions);
+                            if (debug.includes(pir::DebugFlag::ShowWarnings))
                                std::cerr << "Compilation failed\n";
                        },
                        {});
