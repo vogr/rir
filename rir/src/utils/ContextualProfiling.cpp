@@ -131,8 +131,11 @@ namespace rir {
 					case SPECIALSXP: return "SPECIALSXP";
 					case BUILTINSXP: return "BUILTINSXP";
 					case CLOSXP: return "CLOSXP";
-					default: return "TYPE_NO_" + type;
-				}
+					default:
+						stringstream ss;
+						ss << "TYPE_NO_" << type;
+						return ss.str();
+					}
 			}
 
 			void createEntry(CallContext& call) {
