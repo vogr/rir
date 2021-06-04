@@ -7,8 +7,31 @@
 #include <algorithm>
 #include <set>
 #include <fstream>
+#include <functional>
 #include <chrono>
 #include <ctime>
+
+namespace {
+	class ContextCallId {
+		public:
+		size_t fun_id;
+		unsigned long ctxt_id;
+
+		bool operator==(ContextCallId const & other) const {
+			return (fun_id == other.fun_id) && (ctxt_id == other.ctxt_id);
+		};
+	};
+}
+
+
+namespace std {
+	template<> struct hash<ContextCallId> {
+		size_t operator()(ContextCallId const& c) const {
+		return c.fun_id * 37 + c.ctxt_id;
+		}
+	};
+} // namespace std
+
 
 namespace rir {
 
@@ -52,15 +75,20 @@ namespace rir {
 		unordered_map<size_t, unique_ptr<FunLabel>> names; // names: either a string, or an id for anonymous functions
 		string del = ","; // delimier
 
+
+
+
+
+
 		set<size_t> lIds; // lIds
 		unordered_map<size_t, string> lNames; // lNames
 		unordered_map<size_t, set<Context>> lContexts; // lContexts
-		unordered_map<size_t, int> lContextCallCount; // lContextCallCount
-		unordered_map<size_t, int> lContextSuccessfulCompilationCount;
-		unordered_map<size_t, int> lContextFailedCompilationCount;
+		unordered_map<ContextCallId, int> lContextCallCount; // lContextCallCount
+		unordered_map<ContextCallId, int> lContextSuccessfulCompilationCount;
+		unordered_map<ContextCallId, int> lContextFailedCompilationCount;
 
-		unordered_map<size_t, set<Context>> lDispatchedFunctions; // lDispatchedFunctions
-		unordered_map<size_t, int> lDispatchedFunctionsCount; // lDispatchedFunctionsCount
+		unordered_map<ContextCallId, set<Context>> lDispatchedFunctions; // lDispatchedFunctions
+		unordered_map<ContextCallId, int> lDispatchedFunctionsCount; // lDispatchedFunctionsCount
 
 		struct FileLogger {
 			ofstream myfile;
@@ -143,11 +171,11 @@ namespace rir {
 				// TODO CREATE CALL GRAPHS FOR CONTINUING CALL CONTEXTS
 			}
 
-			size_t getContextId(
+			ContextCallId getContextId(
 				size_t id,
 				Context context
 			) {
-				return id + context.toI();
+				return ContextCallId{id, context.toI()};
 			}
 
 			void createRirCallEntry(
@@ -181,9 +209,9 @@ namespace rir {
 				Function f
 			) {
 				Context funContext = f.context();
-				size_t contextId = getContextId(id, context);
+				auto contextId = getContextId(id, context);
 
-				size_t funContextId = getContextId(id, funContext);
+				auto funContextId = getContextId(id, funContext);
 
 				if (lDispatchedFunctions.find(contextId) == lDispatchedFunctions.end()) {
 					set<Context> currFunctions;
@@ -205,7 +233,7 @@ namespace rir {
 				Context const& assumptions
 			) {
 				size_t entry_key = getEntryKey(callee);
-				size_t context_call_key = getContextId(entry_key, assumptions);
+				auto context_call_key = getContextId(entry_key, assumptions);
 
 				if(! lContextSuccessfulCompilationCount.count(context_call_key)) {
 					lContextSuccessfulCompilationCount.emplace(context_call_key, 1);
@@ -219,7 +247,7 @@ namespace rir {
 				Context const& assumptions
 			) {
 				size_t entry_key = getEntryKey(callee);
-				size_t context_call_key = getContextId(entry_key, assumptions);
+				auto context_call_key = getContextId(entry_key, assumptions);
 
 				if(! lContextFailedCompilationCount.count(context_call_key)) {
 					lContextFailedCompilationCount.emplace(context_call_key, 1);
@@ -327,7 +355,7 @@ namespace rir {
 					for (auto itr = lContexts[id].begin(); itr != lContexts[id].end(); itr++) {
 						// *itr -> Context
 						Context currContext = *itr; // current context
-						size_t currContextId = getContextId(id, currContext); // current context __id
+						auto currContextId = getContextId(id, currContext); // current context __id
 						string currContextString = getContextString(currContext, true); // current context __string
 						int currContextCallCount = lContextCallCount[currContextId]; // current context __count
 
@@ -348,7 +376,7 @@ namespace rir {
 							 // *itr1 -> Context
 							 Context currFunctionContext = *itr1; // current function context
 							 string currContextString = getContextString(currFunctionContext, false); // current function context __string
-							 size_t funContextId = getContextId(id, currFunctionContext); // id to get function context call count for given call id
+							 auto funContextId = getContextId(id, currFunctionContext); // id to get function context call count for given call id
 							 int functionContextCallCount = lDispatchedFunctionsCount[funContextId]; // current function context __call count
 
 							 contextsDispatched << "[" << functionContextCallCount << "]" << currContextString << " ";
