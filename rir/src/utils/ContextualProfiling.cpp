@@ -59,7 +59,7 @@ namespace rir {
 		unordered_map<size_t, int> lContextCompilationTriggerCount; // lContextCompilationTriggerCount
 
 		unordered_map<size_t, set<Context>> lDispatchedFunctions; // lDispatchedFunctions
-		unordered_map<size_t, int> lDispatchedFunctionsCount; // lDispatchedFunctionsCount
+		unordered_map<string, int> lDispatchedFunctionsCount; // lDispatchedFunctionsCount
 
 		struct FileLogger {
 			ofstream myfile;
@@ -146,6 +146,14 @@ namespace rir {
 				return id + context.toI();
 			}
 
+			std::string getContextDispatchId(
+				size_t id,
+				Context contextCaller,
+				Context contextDispatched
+			) {
+				return std::to_string(id) + std::to_string(contextCaller.toI()) + std::to_string(contextDispatched.toI());
+			}
+
 			void createRirCallEntry(
 				size_t id,
 				std::string name,
@@ -190,7 +198,7 @@ namespace rir {
 				Context funContext = f.context();
 				size_t contextId = getContextId(id, context);
 
-				size_t funContextId = getContextId(id, funContext);
+				string funContextId = getContextDispatchId(id, context, funContext);
 
 				if (lDispatchedFunctions.find(contextId) == lDispatchedFunctions.end()) {
 					set<Context> currFunctions;
@@ -320,7 +328,7 @@ namespace rir {
 							 // *itr1 -> Context
 							 Context currFunctionContext = *itr1; // current function context
 							 string currContextString = getContextString(currFunctionContext, false); // current function context __string
-							 size_t funContextId = getContextId(id, currFunctionContext); // id to get function context call count for given call id
+							 string funContextId = getContextDispatchId(id, currContext, currFunctionContext); // id to get function context call count for given call id
 							 int functionContextCallCount = lDispatchedFunctionsCount[funContextId]; // current function context __call count
 
 							 contextsDispatched << "[" << functionContextCallCount << "]" << currContextString << " ";
