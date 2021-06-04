@@ -49,13 +49,17 @@ namespace rir {
 			bool is_anon() override { return false; }
 		};
 
-		unordered_map<size_t, set<string>> callContexts; // callContexts
-		unordered_map<size_t, int> callCount; // callCount
-		unordered_map<string, int> contextCallCount; // callCount
-		unordered_map<size_t, string> basicData; // function id, type
 		unordered_map<size_t, unique_ptr<FunLabel>> names; // names: either a string, or an id for anonymous functions
-		set<size_t> entries; // id's of all the methods
-		string del = ",";
+		string del = ","; // delimier
+
+		set<size_t> lIds; // lIds
+		unordered_map<size_t, string> lNames; // lNames
+		unordered_map<size_t, set<Context>> lContexts; // lContexts
+		unordered_map<size_t, int> lContextCallCount; // lContextCallCount
+		unordered_map<size_t, int> lContextCompilationTriggerCount; // lContextCompilationTriggerCount
+
+		unordered_map<size_t, set<Context>> lDispatchedFunctions; // lDispatchedFunctions
+		unordered_map<size_t, int> lDispatchedFunctionsCount; // lDispatchedFunctionsCount
 
 		struct FileLogger {
 			ofstream myfile;
@@ -68,7 +72,7 @@ namespace rir {
 				string runId = runId_ss.str();
 
 				myfile.open("profile/" + runId + ".csv");
-				myfile << "Sno,id,name,type,callCount,callContexts,PIRCompiled\n";
+				myfile << "SNO,ID,NAME,PIR_COMPILER_TRIGGERED,CONTEXT_CALLED,CALL TypeFlags,CALL Assumptions,DISPATCHED FUNCTIONS\n";
 			}
 
 			static size_t getEntryKey(CallContext& call) {
@@ -131,51 +135,153 @@ namespace rir {
 				}
 			}
 
-			// void createEntry(CallContext& call, bool tryFastBuiltInCall) {
-			// 	string callName = getFunctionName(call);
-			// 	cout << "Logging Function:: "
-			// 		 << callName << ", "
-			// 		 << getFunType(TYPEOF(call.callee));
+			void createEntry(CallContext& call) {
+				// TODO CREATE CALL GRAPHS FOR CONTINUING CALL CONTEXTS
+			}
 
-			// 	if(TYPEOF(call.callee) == BUILTINSXP) {
-			// 		cout << ", " << (tryFastBuiltInCall ? "FastBuiltInCallSucceeded" : "FastBuiltInCallFailed");
-			// 	}
+			size_t getContextId(
+				size_t id,
+				Context context
+			) {
+				return id + context.toI();
+			}
 
-			// 	cout << "\n";
-			// }
+			void createRirCallEntry(
+				size_t id,
+				std::string name,
+				Context context,
+				bool trigger
+			) {
+				lIds.insert(id);
+				lNames[id] = name;
 
-			void addContextData(CallContext& call, string data) {
-				size_t currentKey = getEntryKey(call);
-				// current call context has not been recorded before
-				if (callContexts.find(currentKey) == callContexts.end()) {
-					set<string> currContext;
-					currContext.insert(data);
-					callContexts[currentKey] = currContext;
-					contextCallCount[data] = 1;
+				if (lContexts.find(id) == lContexts.end()) {
+					set<Context> currContext;
+					currContext.insert(context);
+					lContexts[id] = currContext;
 				} else {
-					// insert data into the set
-					set<string> mod = callContexts[currentKey];
-					mod.insert(data);
-					callContexts[currentKey] = mod;
-					contextCallCount[data] = contextCallCount[data] + 1;
+					set<Context> mod = lContexts[id];
+					mod.insert(context);
+					lContexts[id] = mod;
 				}
+
+				if (lContextCallCount.find(getContextId(id, context)) == lContextCallCount.end()) {
+					lContextCallCount[getContextId(id, context)] = 1;
+				} else {
+					lContextCallCount[getContextId(id, context)] = lContextCallCount[getContextId(id, context)] + 1;
+				}
+
+				if(!trigger) return; // dont increment if no pirCompilationTrigger
+
+				if (lContextCompilationTriggerCount.find(getContextId(id, context)) == lContextCompilationTriggerCount.end()) {
+					lContextCompilationTriggerCount[getContextId(id, context)] = 1;
+				} else {
+					lContextCompilationTriggerCount[getContextId(id, context)] = lContextCompilationTriggerCount[getContextId(id, context)] + 1;
+				}
+
 
 			}
 
-			void createEntry(CallContext& call) {
-				size_t currentKey = getEntryKey(call);
-				string funName = getFunctionName(call);
-				// encounter first call
-				if (!(std::count(entries.begin(), entries.end(), currentKey))) {
-					entries.insert(currentKey);
-					callCount[currentKey] = 1;
-					// create basic data entry
-					basicData[currentKey] =
-						to_string(currentKey) + del +
-						getFunType(TYPEOF(call.callee));
+			void addFunctionDispatchInfo(
+				size_t id,
+				Context context,
+				Function f
+			) {
+				Context funContext = f.context();
+				size_t contextId = getContextId(id, context);
+
+				size_t funContextId = getContextId(id, funContext);
+
+				if (lDispatchedFunctions.find(contextId) == lDispatchedFunctions.end()) {
+					set<Context> currFunctions;
+					currFunctions.insert(funContext);
+					lDispatchedFunctions[contextId] = currFunctions;
+
+					lDispatchedFunctionsCount[funContextId] = 1;
 				} else {
-					callCount[currentKey] = ++callCount[currentKey];
+					set<Context> mod = lDispatchedFunctions[contextId];
+					mod.insert(funContext);
+					lDispatchedFunctions[contextId] = mod;
+					lDispatchedFunctionsCount[funContextId] = lDispatchedFunctionsCount[funContextId] + 1;
 				}
+			}
+
+			std::string getContextString(Context& c, bool del) {
+				stringstream contextString;
+				contextString << "< ";
+				TypeAssumption types[] = {
+				    TypeAssumption::Arg0IsEager_,
+				    TypeAssumption::Arg1IsEager_,
+				    TypeAssumption::Arg2IsEager_,
+				    TypeAssumption::Arg3IsEager_,
+				    TypeAssumption::Arg4IsEager_,
+				    TypeAssumption::Arg5IsEager_,
+				    TypeAssumption::Arg0IsNonRefl_,
+				    TypeAssumption::Arg1IsNonRefl_,
+				    TypeAssumption::Arg2IsNonRefl_,
+				    TypeAssumption::Arg3IsNonRefl_,
+				    TypeAssumption::Arg4IsNonRefl_,
+				    TypeAssumption::Arg5IsNonRefl_,
+				    TypeAssumption::Arg0IsNotObj_,
+				    TypeAssumption::Arg1IsNotObj_,
+				    TypeAssumption::Arg2IsNotObj_,
+				    TypeAssumption::Arg3IsNotObj_,
+				    TypeAssumption::Arg4IsNotObj_,
+				    TypeAssumption::Arg5IsNotObj_,
+				    TypeAssumption::Arg0IsSimpleInt_,
+				    TypeAssumption::Arg1IsSimpleInt_,
+				    TypeAssumption::Arg2IsSimpleInt_,
+				    TypeAssumption::Arg3IsSimpleInt_,
+				    TypeAssumption::Arg4IsSimpleInt_,
+				    TypeAssumption::Arg5IsSimpleInt_,
+				    TypeAssumption::Arg0IsSimpleReal_,
+				    TypeAssumption::Arg1IsSimpleReal_,
+				    TypeAssumption::Arg2IsSimpleReal_,
+				    TypeAssumption::Arg3IsSimpleReal_,
+				    TypeAssumption::Arg4IsSimpleReal_,
+				    TypeAssumption::Arg5IsSimpleReal_,
+				};
+
+				int iT, jT;
+				for(iT = 0; iT < 5; iT++) {
+				    std::string currentCheck = "";
+				    switch(iT) {
+				        case 0:
+				            currentCheck = "Eager"; break;
+				        case 1:
+				            currentCheck = "NonReflective"; break;
+				        case 2:
+				            currentCheck = "NotObj"; break;
+				        case 3:
+				            currentCheck = "SimpleInt"; break;
+				        default:
+				            currentCheck = "SimpleReal";
+				    }
+				    for(jT = 0; jT < 6; jT++) {
+				        if(c.includes(types[iT*6 + jT])) {
+							contextString << "Arg" << std::to_string(jT) << currentCheck << " ";
+				        }
+				    }
+				}
+				if (del) {
+					contextString << " >,< ";
+				} else {
+					contextString << " >|< ";
+				}
+				if(c.includes(Assumption::CorrectOrderOfArguments)) {
+					contextString << " CorrectOrderOfArguments ";
+				}
+				if(c.includes(Assumption::NoExplicitlyMissingArgs)) {
+					contextString << " NoExplicitlyMissingArgs ";
+				}
+				if(c.includes(Assumption::NotTooManyArguments)) {
+					contextString << " NotTooManyArguments ";
+				}
+				if(c.includes(Assumption::StaticallyArgmatched)) {
+					contextString << " StaticallyArgmatched ";
+				}
+				contextString << " >";
+				return contextString.str();
 			}
 
 			void createCodePointEntry(
@@ -190,37 +296,50 @@ namespace rir {
 			}
 
 			~FileLogger() {
-				cout << "\n\n\n";
-				int i = 1;
-				for (auto ir = entries.rbegin(); ir != entries.rend(); ++ir) {
-					// *ir -> size_t
-					if(callContexts.find(*ir) != callContexts.end()) {
-						for (auto itr = callContexts[*ir].begin(); itr != callContexts[*ir].end(); itr++) {
-							myfile
-								<< i++ // SNO
-								<< del
-								<< names[*ir]->get_name() // NAME
-								<< del
-								<< basicData[*ir] // ID, TYPE
-								<< del
-								<< contextCallCount[*itr] // CONTEXT_CALL_COUNT
-								<< del
-								<< *itr // i'th context, RIR Compiled
-								<< "\n";
+				int i=0;
+				for (auto ir = lIds.rbegin(); ir != lIds.rend(); ++ir) {
+					size_t id = *ir; // function __id
+					string name = lNames[id]; // function __name
+					// iterate over contexts
+					for (auto itr = lContexts[id].begin(); itr != lContexts[id].end(); itr++) {
+						// *itr -> Context
+						Context currContext = *itr; // current context
+						size_t currContextId = getContextId(id, currContext); // current context __id
+						string currContextString = getContextString(currContext, true); // current context __string
+						int currContextCallCount = lContextCallCount[currContextId]; // current context __count
+
+						stringstream contextsDispatched;
+
+						int currContextPIRTriggerCount = 0;
+						if (lContextCompilationTriggerCount.find(currContextId) != lContextCompilationTriggerCount.end()) {
+							currContextPIRTriggerCount = lContextCompilationTriggerCount[currContextId];
 						}
-					} else {
+
+						// iterate over dispatched functions under this context
+						for (auto itr1 = lDispatchedFunctions[currContextId].begin(); itr1 != lDispatchedFunctions[currContextId].end(); itr1++) {
+							 // *itr1 -> Context
+							 Context currFunctionContext = *itr1; // current function context
+							 string currContextString = getContextString(currFunctionContext, false); // current function context __string
+							 size_t funContextId = getContextId(id, currFunctionContext); // id to get function context call count for given call id
+							 int functionContextCallCount = lDispatchedFunctionsCount[funContextId]; // current function context __call count
+
+							 contextsDispatched << "[" << functionContextCallCount << "]" << currContextString << " ";
+						}
+						// print row
 						myfile
 							<< i++ // SNO
 							<< del
-							<< names[*ir]->get_name() // NAME
+							<< id // id
 							<< del
-							<< basicData[*ir] // ID, TYPE
+							<< name // name
 							<< del
-							<< callCount[*ir] // CALL_COUNT
+							<< currContextPIRTriggerCount // call context PIR trigger count
 							<< del
-							// NO context data
-							<< del // i'th context
-							<< "FALSE" // RIR Compiled
+							<< currContextCallCount // call context count
+							<< del
+							<< currContextString // call context
+							<< del
+							<< contextsDispatched.str() // functions dispatched under this context
 							<< "\n";
 					}
 				}
@@ -242,15 +361,6 @@ void ContextualProfiling::createCallEntry(
 	}
 }
 
-void ContextualProfiling::addContextData(
-		CallContext& call,
-		string data
-		) {
-	if(fileLogger) {
-		fileLogger->addContextData(call, data);
-	}
-}
-
 void ContextualProfiling::recordCodePoint(
 		int line,
 		std::string function,
@@ -258,6 +368,43 @@ void ContextualProfiling::recordCodePoint(
 		) {
 	if(fileLogger) {
 		fileLogger->createCodePointEntry(line, function, name);
+	}
+}
+
+std::string ContextualProfiling::getFunctionName(CallContext& cc) {
+	if(fileLogger) {
+		return fileLogger->getFunctionName(cc);
+	} else {
+		return "ERR <ContextualProfiler>";
+	}
+}
+
+size_t ContextualProfiling::getEntryKey(CallContext& cc) {
+	if(fileLogger) {
+		return fileLogger->getEntryKey(cc);
+	} else {
+		return 0;
+	}
+}
+
+void ContextualProfiling::addRirCallData(
+	size_t id,
+	std::string name,
+	Context context,
+	bool trigger
+) {
+	if(fileLogger) {
+		return fileLogger->createRirCallEntry(id, name, context, trigger);
+	}
+}
+
+void ContextualProfiling::addFunctionDispatchInfo(
+	size_t id,
+	Context contextCaller,
+	Function f
+) {
+	if(fileLogger) {
+		return fileLogger->addFunctionDispatchInfo(id, contextCaller, f);
 	}
 }
 

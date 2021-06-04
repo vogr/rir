@@ -1054,64 +1054,12 @@ RIR_INLINE SEXP rirCall(CallContext& call, InterpreterInstance* ctx) {
     Function* fun = dispatch(call, table);
     fun->registerInvocation();
 
-    std::string inferredContext = "< ";
-    TypeAssumption types[] = {
-        TypeAssumption::Arg0IsEager_,
-        TypeAssumption::Arg1IsEager_,
-        TypeAssumption::Arg2IsEager_,
-        TypeAssumption::Arg3IsEager_,
-        TypeAssumption::Arg4IsEager_,
-        TypeAssumption::Arg5IsEager_,
-        TypeAssumption::Arg0IsNonRefl_,
-        TypeAssumption::Arg1IsNonRefl_,
-        TypeAssumption::Arg2IsNonRefl_,
-        TypeAssumption::Arg3IsNonRefl_,
-        TypeAssumption::Arg4IsNonRefl_,
-        TypeAssumption::Arg5IsNonRefl_,
-        TypeAssumption::Arg0IsNotObj_,
-        TypeAssumption::Arg1IsNotObj_,
-        TypeAssumption::Arg2IsNotObj_,
-        TypeAssumption::Arg3IsNotObj_,
-        TypeAssumption::Arg4IsNotObj_,
-        TypeAssumption::Arg5IsNotObj_,
-        TypeAssumption::Arg0IsSimpleInt_,
-        TypeAssumption::Arg1IsSimpleInt_,
-        TypeAssumption::Arg2IsSimpleInt_,
-        TypeAssumption::Arg3IsSimpleInt_,
-        TypeAssumption::Arg4IsSimpleInt_,
-        TypeAssumption::Arg5IsSimpleInt_,
-        TypeAssumption::Arg0IsSimpleReal_,
-        TypeAssumption::Arg1IsSimpleReal_,
-        TypeAssumption::Arg2IsSimpleReal_,
-        TypeAssumption::Arg3IsSimpleReal_,
-        TypeAssumption::Arg4IsSimpleReal_,
-        TypeAssumption::Arg5IsSimpleReal_,
-    };
-
-    int iT, jT;
-    for(iT = 0; iT < 5; iT++) {
-        std::string currentCheck = "";
-        switch(iT) {
-            case 0:
-                currentCheck = "Eager"; break;
-            case 1:
-                currentCheck = "NonReflective"; break;
-            case 2:
-                currentCheck = "NotObj"; break;
-            case 3:
-                currentCheck = "SimpleInt"; break;
-            default:
-                currentCheck = "SimpleReal";
-        }
-        for(jT = 0; jT < 6; jT++) {
-            if(call.givenContext.includes(types[iT + jT])) {
-                inferredContext += "Arg" + std::to_string(jT) + currentCheck + " ";
-            }
-        }
-    }
-    inferredContext += ">";
-    inferredContext += ",";
-    bool recompiled = false;
+    // For Logger -- START
+    size_t lMethodId = ContextualProfiling::getEntryKey(call);
+    std::string lMethodName = ContextualProfiling::getFunctionName(call);
+    Context lContext = call.givenContext;
+    bool compilationTrigger = false;
+    // For Logger -- END
 
     if (!isDeoptimizing() && RecompileHeuristic(table, fun)) {
         Context given = call.givenContext;
@@ -1124,19 +1072,25 @@ RIR_INLINE SEXP rirCall(CallContext& call, InterpreterInstance* ctx) {
         fun->clearDisabledAssumptions(given);
         if (RecompileCondition(table, fun, given)) {
             if (given.includes(pir::Compiler::minimalContext)) {
-                recompiled = true;
+                compilationTrigger = true;
                 DoRecompile(fun, call.ast, call.callee, given, ctx);
                 fun = dispatch(call, table);
             }
         }
     }
-    if(recompiled) {
-        inferredContext += "TRUE";
-    } else {
-        inferredContext += "FALSE";
-    }
 
-    ContextualProfiling::addContextData(call, inferredContext);
+    ContextualProfiling::addRirCallData(
+        lMethodId,
+        lMethodName,
+        lContext,
+        compilationTrigger
+    );
+
+    ContextualProfiling::addFunctionDispatchInfo(
+        lMethodId,
+        lContext,
+        *fun
+    );
 
     bool needsEnv = fun->signature().envCreation ==
                     FunctionSignature::Environment::CallerProvided;
@@ -1237,8 +1191,6 @@ SEXP doCall(CallContext& call, InterpreterInstance* ctx) {
     ContextualProfiling::createCallEntry(
       call
     );
-
-    // ContextualProfiling::recordCodePoint(1164, "doCall", "test");
 
     switch (TYPEOF(call.callee)) {
     case SPECIALSXP:
