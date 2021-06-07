@@ -186,20 +186,16 @@ namespace rir {
 				lIds.insert(id);
 				lNames[id] = name;
 
-				if (lContexts.find(id) == lContexts.end()) {
-					set<Context> currContext;
-					currContext.insert(context);
-					lContexts[id] = currContext;
+				if (lContexts.find(id) != lContexts.end()) {
+					lContexts.at(id).insert(context);
 				} else {
-					set<Context> mod = lContexts[id];
-					mod.insert(context);
-					lContexts[id] = mod;
+					lContexts.emplace(id, set<Context>{{context}});
 				}
 
-				if (lContextCallCount.find(getContextId(id, context)) == lContextCallCount.end()) {
-					lContextCallCount[getContextId(id, context)] = 1;
+				if (lContextCallCount.find(getContextId(id, context)) != lContextCallCount.end()) {
+					lContextCallCount.at(getContextId(id, context))++;
 				} else {
-					lContextCallCount[getContextId(id, context)] = lContextCallCount[getContextId(id, context)] + 1;
+					lContextCallCount.emplace(getContextId(id, context), 1);
 				}
 			}
 
@@ -213,17 +209,17 @@ namespace rir {
 
 				auto funContextId = getContextId(id, funContext);
 
-				if (lDispatchedFunctions.find(contextId) == lDispatchedFunctions.end()) {
-					set<Context> currFunctions;
-					currFunctions.insert(funContext);
-					lDispatchedFunctions[contextId] = currFunctions;
 
-					lDispatchedFunctionsCount[funContextId] = 1;
+				if (! lDispatchedFunctions.count(contextId)) {
+					lDispatchedFunctions.emplace(contextId, set<Context>{{funContext,}});
 				} else {
-					set<Context> mod = lDispatchedFunctions[contextId];
-					mod.insert(funContext);
-					lDispatchedFunctions[contextId] = mod;
-					lDispatchedFunctionsCount[funContextId] = lDispatchedFunctionsCount[funContextId] + 1;
+					lDispatchedFunctions.at(contextId).insert(funContext);
+				}
+
+				if (! lDispatchedFunctionsCount.count(funContextId)) {
+					lDispatchedFunctionsCount.emplace(funContextId, 1);
+				} else {
+					lDispatchedFunctionsCount.at(funContextId)++;
 				}
 			}
 
