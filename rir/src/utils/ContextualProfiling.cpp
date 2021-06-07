@@ -174,8 +174,6 @@ namespace rir {
 				Context call_context,
 				Function const & f
 			) {
-
-
 				Context version_context = f.context();
 
 				// find entry for this function
