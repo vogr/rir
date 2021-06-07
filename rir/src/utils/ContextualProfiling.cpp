@@ -189,10 +189,11 @@ namespace rir {
 					lContexts.emplace(id, set<Context>{{context,}});
 				}
 
-				if (lContextCallCount.find(getContextId(id, context)) != lContextCallCount.end()) {
-					lContextCallCount.at(getContextId(id, context))++;
+				auto contextId = getContextId(id, context);
+				if (lContextCallCount.find(contextId) != lContextCallCount.end()) {
+					lContextCallCount.at(contextId)++;
 				} else {
-					lContextCallCount.emplace(getContextId(id, context), 1);
+					lContextCallCount.emplace(contextId, 1);
 				}
 			}
 
