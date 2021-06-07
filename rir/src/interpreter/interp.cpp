@@ -1076,11 +1076,6 @@ RIR_INLINE SEXP rirCall(CallContext& call, InterpreterInstance* ctx) {
         }
     }
 
-    ContextualProfiling::addRirCallData(
-        lMethodId,
-        lContext
-    );
-
     ContextualProfiling::addFunctionDispatchInfo(
         lMethodId,
         lContext,
