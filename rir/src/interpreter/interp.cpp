@@ -1056,7 +1056,6 @@ RIR_INLINE SEXP rirCall(CallContext& call, InterpreterInstance* ctx) {
 
     // For Logger -- START
     size_t lMethodId = ContextualProfiling::getEntryKey(call);
-    std::string lMethodName = ContextualProfiling::getFunctionName(call);
     Context lContext = call.givenContext;
     // For Logger -- END
 
@@ -1079,7 +1078,6 @@ RIR_INLINE SEXP rirCall(CallContext& call, InterpreterInstance* ctx) {
 
     ContextualProfiling::addRirCallData(
         lMethodId,
-        lMethodName,
         lContext
     );
 

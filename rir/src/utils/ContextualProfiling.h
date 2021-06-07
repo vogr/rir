@@ -18,15 +18,11 @@ class ContextualProfiling {
     //   CallContext&,
     //   std::string
     // );
-    static std::string getFunctionName(
-      CallContext&
-    );
     static size_t getEntryKey(
       CallContext&
     );
     static void addRirCallData(
       size_t,
-      std::string,
       Context
     );
     static void addFunctionDispatchInfo(

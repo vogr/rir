@@ -81,7 +81,6 @@ namespace rir {
 
 
 		set<size_t> lIds; // lIds
-		unordered_map<size_t, string> lNames; // lNames
 		unordered_map<size_t, set<Context>> lContexts; // lContexts
 		unordered_map<ContextCallId, int> lContextCallCount; // lContextCallCount
 		unordered_map<ContextCallId, int> lContextSuccessfulCompilationCount;
@@ -117,7 +116,7 @@ namespace rir {
 				return reinterpret_cast<size_t>(BODY(callee));
 			}
 
-			string getFunctionName(CallContext& call) {
+			void registerFunctionName(CallContext& call) {
 				static const SEXP double_colons = Rf_install("::");
 				static const SEXP triple_colons = Rf_install(":::");
 				size_t const currentKey = getEntryKey(call.callee);
@@ -152,7 +151,6 @@ namespace rir {
 					names[currentKey] = make_unique<FunLabel_anon>(anon_fun_counter);
 					anon_fun_counter++;
 				}
-				return names[currentKey]->get_name();
 			}
 
 			string getFunType(int type) {
@@ -168,6 +166,7 @@ namespace rir {
 			}
 
 			void createEntry(CallContext& call) {
+				registerFunctionName(call);
 				// TODO CREATE CALL GRAPHS FOR CONTINUING CALL CONTEXTS
 			}
 
@@ -180,16 +179,14 @@ namespace rir {
 
 			void createRirCallEntry(
 				size_t id,
-				std::string name,
 				Context context
 			) {
 				lIds.insert(id);
-				lNames[id] = name;
 
 				if (lContexts.find(id) != lContexts.end()) {
 					lContexts.at(id).insert(context);
 				} else {
-					lContexts.emplace(id, set<Context>{{context}});
+					lContexts.emplace(id, set<Context>{{context,}});
 				}
 
 				if (lContextCallCount.find(getContextId(id, context)) != lContextCallCount.end()) {
@@ -209,7 +206,6 @@ namespace rir {
 
 				auto funContextId = getContextId(id, funContext);
 
-
 				if (! lDispatchedFunctions.count(contextId)) {
 					lDispatchedFunctions.emplace(contextId, set<Context>{{funContext,}});
 				} else {
@@ -221,6 +217,7 @@ namespace rir {
 				} else {
 					lDispatchedFunctionsCount.at(funContextId)++;
 				}
+
 			}
 
 
@@ -346,7 +343,7 @@ namespace rir {
 				int i=0;
 				for (auto ir = lIds.rbegin(); ir != lIds.rend(); ++ir) {
 					size_t id = *ir; // function __id
-					string name = lNames[id]; // function __name
+					string name = names.at(id)->get_name(); // function __name
 					// iterate over contexts
 					for (auto itr = lContexts[id].begin(); itr != lContexts[id].end(); itr++) {
 						// *itr -> Context
@@ -425,14 +422,6 @@ void ContextualProfiling::recordCodePoint(
 	}
 }
 
-std::string ContextualProfiling::getFunctionName(CallContext& cc) {
-	if(fileLogger) {
-		return fileLogger->getFunctionName(cc);
-	} else {
-		return "ERR <ContextualProfiler>";
-	}
-}
-
 size_t ContextualProfiling::getEntryKey(CallContext& cc) {
 	if(fileLogger) {
 		return fileLogger->getEntryKey(cc.callee);
@@ -443,11 +432,10 @@ size_t ContextualProfiling::getEntryKey(CallContext& cc) {
 
 void ContextualProfiling::addRirCallData(
 	size_t id,
-	std::string name,
 	Context context
 ) {
 	if(fileLogger) {
-		return fileLogger->createRirCallEntry(id, name, context);
+		return fileLogger->createRirCallEntry(id, context);
 	}
 }
 
