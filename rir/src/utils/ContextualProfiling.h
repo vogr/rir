@@ -7,7 +7,7 @@ namespace rir {
 class ContextualProfiling {
   public:
     static void createCallEntry(
-      CallContext& // logs [ name, callType ]
+      CallContext const& // logs [ name, callType ]
       );
     static void recordCodePoint(
       int,
@@ -18,22 +18,21 @@ class ContextualProfiling {
     //   CallContext&,
     //   std::string
     // );
-    static std::string getFunctionName(
-      CallContext&
-    );
     static size_t getEntryKey(
-      CallContext&
-    );
-    static void addRirCallData(
-      size_t,
-      std::string,
-      Context,
-      bool
+      CallContext const&
     );
     static void addFunctionDispatchInfo(
       size_t,
       Context,
-      Function
+      Function const&
+    );
+    static void countSuccessfulCompilation(
+      SEXP,
+      Context
+    );
+    static void countFailedCompilation(
+      SEXP,
+      Context
     );
 };
 

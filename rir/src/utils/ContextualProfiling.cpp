@@ -7,8 +7,10 @@
 #include <algorithm>
 #include <set>
 #include <fstream>
+#include <functional>
 #include <chrono>
 #include <ctime>
+
 
 namespace rir {
 
@@ -52,14 +54,28 @@ namespace rir {
 		unordered_map<size_t, unique_ptr<FunLabel>> names; // names: either a string, or an id for anonymous functions
 		string del = ","; // delimier
 
-		set<size_t> lIds; // lIds
-		unordered_map<size_t, string> lNames; // lNames
-		unordered_map<size_t, set<Context>> lContexts; // lContexts
-		unordered_map<size_t, int> lContextCallCount; // lContextCallCount
-		unordered_map<size_t, int> lContextCompilationTriggerCount; // lContextCompilationTriggerCount
 
-		unordered_map<size_t, set<Context>> lDispatchedFunctions; // lDispatchedFunctions
-		unordered_map<string, int> lDispatchedFunctionsCount; // lDispatchedFunctionsCount
+		class ContextDispatchData {
+			public:
+			int call_count_in_ctxt = 0;
+			int successful_compilation_count = 0;
+			int failed_compilation_count = 0;
+			// Count the number of time the version for the context C
+			// has been called in this context in
+			//     version_called_count[C]
+			unordered_map<Context, int> version_called_count;
+		};
+
+		class Entry {
+			public:
+			int total_call_count = 0;
+			// per context call and dispatch data
+			unordered_map<Context, ContextDispatchData> dispatch_data;
+		};
+
+		// Map from a function (identified by its body) to the data about the
+		// different contexts it has been called in
+		unordered_map<size_t, Entry> entries;
 
 		struct FileLogger {
 			ofstream myfile;
@@ -72,10 +88,10 @@ namespace rir {
 				string runId = runId_ss.str();
 
 				myfile.open("profile/" + runId + ".csv");
-				myfile << "SNO,ID,NAME,PIR_COMPILER_TRIGGERED,CONTEXT_CALLED,CALL TypeFlags,CALL Assumptions,DISPATCHED FUNCTIONS\n";
+				myfile << "SNO,ID,NAME,CMP_SUCCESS,CMP_FAIL,CONTEXT_CALLED,CALL TypeFlags,CALL Assumptions,DISPATCHED FUNCTIONS\n";
 			}
 
-			static size_t getEntryKey(CallContext& call) {
+			static size_t getEntryKey(SEXP callee) {
 				/* Identify a function by the SEXP of its BODY. For nested functions, The
 				   enclosing CLOSXP changes every time (because the CLOENV also changes):
 				       f <- function {
@@ -85,13 +101,13 @@ namespace rir {
 					Here the BODY of g is always the same SEXP, but a new CLOSXP is used
 					every time f is called.
 				*/
-				return reinterpret_cast<size_t>(BODY(call.callee));
+				return reinterpret_cast<size_t>(BODY(callee));
 			}
 
-			string getFunctionName(CallContext& call) {
+			void registerFunctionName(CallContext const& call) {
 				static const SEXP double_colons = Rf_install("::");
 				static const SEXP triple_colons = Rf_install(":::");
-				size_t const currentKey = getEntryKey(call);
+				size_t const currentKey = getEntryKey(call.callee);
 				SEXP const lhs = CAR(call.ast);
 
 				if (names.count(currentKey) == 0 || names[currentKey]->is_anon() ) {
@@ -123,7 +139,6 @@ namespace rir {
 					names[currentKey] = make_unique<FunLabel_anon>(anon_fun_counter);
 					anon_fun_counter++;
 				}
-				return names[currentKey]->get_name();
 			}
 
 			string getFunType(int type) {
@@ -131,90 +146,72 @@ namespace rir {
 					case SPECIALSXP: return "SPECIALSXP";
 					case BUILTINSXP: return "BUILTINSXP";
 					case CLOSXP: return "CLOSXP";
-					default: return "TYPE_NO_" + type;
-				}
+					default:
+						stringstream ss;
+						ss << "TYPE_NO_" << type;
+						return ss.str();
+					}
 			}
 
-			void createEntry(CallContext& call) {
+			void createEntry(CallContext const& call) {
+				registerFunctionName(call);
+
+				auto fun_id = getEntryKey(call.callee);
+				// create or get entry
+				auto & entry = entries[fun_id];
+				entry.total_call_count++;
+
+				// create or get call context data
+				auto & ctxt_data = entry.dispatch_data[call.givenContext];
+				ctxt_data.call_count_in_ctxt++;
+
+
 				// TODO CREATE CALL GRAPHS FOR CONTINUING CALL CONTEXTS
-			}
-
-			size_t getContextId(
-				size_t id,
-				Context context
-			) {
-				return id + context.toI();
-			}
-
-			std::string getContextDispatchId(
-				size_t id,
-				Context contextCaller,
-				Context contextDispatched
-			) {
-				return std::to_string(id) + std::to_string(contextCaller.toI()) + std::to_string(contextDispatched.toI());
-			}
-
-			void createRirCallEntry(
-				size_t id,
-				std::string name,
-				Context context,
-				bool trigger
-			) {
-				lIds.insert(id);
-				lNames[id] = name;
-
-				if (lContexts.find(id) == lContexts.end()) {
-					set<Context> currContext;
-					currContext.insert(context);
-					lContexts[id] = currContext;
-				} else {
-					set<Context> mod = lContexts[id];
-					mod.insert(context);
-					lContexts[id] = mod;
-				}
-
-				if (lContextCallCount.find(getContextId(id, context)) == lContextCallCount.end()) {
-					lContextCallCount[getContextId(id, context)] = 1;
-				} else {
-					lContextCallCount[getContextId(id, context)] = lContextCallCount[getContextId(id, context)] + 1;
-				}
-
-				if(!trigger) return; // dont increment if no pirCompilationTrigger
-
-				if (lContextCompilationTriggerCount.find(getContextId(id, context)) == lContextCompilationTriggerCount.end()) {
-					lContextCompilationTriggerCount[getContextId(id, context)] = 1;
-				} else {
-					lContextCompilationTriggerCount[getContextId(id, context)] = lContextCompilationTriggerCount[getContextId(id, context)] + 1;
-				}
-
-
 			}
 
 			void addFunctionDispatchInfo(
 				size_t id,
-				Context context,
-				Function f
+				Context call_context,
+				Function const & f
 			) {
-				Context funContext = f.context();
-				size_t contextId = getContextId(id, context);
+				Context version_context = f.context();
 
-				string funContextId = getContextDispatchId(id, context, funContext);
+				// find entry for this function
+				auto & entry = entries.at(id);
+				// find part relative to this context
+				auto & dispatch_data = entry.dispatch_data.at(call_context);
 
-				if (lDispatchedFunctions.find(contextId) == lDispatchedFunctions.end()) {
-					set<Context> currFunctions;
-					currFunctions.insert(funContext);
-					lDispatchedFunctions[contextId] = currFunctions;
-
-					lDispatchedFunctionsCount[funContextId] = 1;
-				} else {
-					set<Context> mod = lDispatchedFunctions[contextId];
-					mod.insert(funContext);
-					lDispatchedFunctions[contextId] = mod;
-					lDispatchedFunctionsCount[funContextId] = lDispatchedFunctionsCount[funContextId] + 1;
-				}
+				// count one call in the context callContextId  to version compiled for funContextId
+				dispatch_data.version_called_count[version_context]++;
 			}
 
-			std::string getContextString(Context& c, bool del) {
+
+			void countSuccessfulCompilation(
+				SEXP callee,
+				Context call_ctxt
+			) {
+				size_t entry_key = getEntryKey(callee);
+
+				auto & entry = entries.at(entry_key);
+				auto & dispatch_data = entry.dispatch_data.at(call_ctxt);
+
+				dispatch_data.successful_compilation_count++;
+			}
+
+			void countFailedCompilation(
+				SEXP callee,
+				Context call_ctxt
+			) {
+				size_t entry_key = getEntryKey(callee);
+
+				auto & entry = entries.at(entry_key);
+				auto & dispatch_data = entry.dispatch_data.at(call_ctxt);
+
+				dispatch_data.failed_compilation_count++;
+			}
+
+
+			std::string getContextString(Context c, bool del) {
 				stringstream contextString;
 				contextString << "< ";
 				TypeAssumption types[] = {
@@ -305,45 +302,44 @@ namespace rir {
 
 			~FileLogger() {
 				int i=0;
-				for (auto ir = lIds.rbegin(); ir != lIds.rend(); ++ir) {
-					size_t id = *ir; // function __id
-					string name = lNames[id]; // function __name
+				for (auto ir = entries.begin(); ir != entries.end(); ++ir) {
+					auto fun_id = ir->first;
+					auto & entry = ir->second;
+					string name = names.at(fun_id)->get_name(); // function name
+
 					// iterate over contexts
-					for (auto itr = lContexts[id].begin(); itr != lContexts[id].end(); itr++) {
+					for (auto itr = entry.dispatch_data.begin(); itr != entry.dispatch_data.end(); itr++) {
 						// *itr -> Context
-						Context currContext = *itr; // current context
-						size_t currContextId = getContextId(id, currContext); // current context __id
-						string currContextString = getContextString(currContext, true); // current context __string
-						int currContextCallCount = lContextCallCount[currContextId]; // current context __count
+						auto call_ctxt = itr->first; // current context __id
+						auto & dispatch_data = itr->second; // current context
+
+						string currContextString = getContextString(call_ctxt, true); // current context __string
 
 						stringstream contextsDispatched;
 
-						int currContextPIRTriggerCount = 0;
-						if (lContextCompilationTriggerCount.find(currContextId) != lContextCompilationTriggerCount.end()) {
-							currContextPIRTriggerCount = lContextCompilationTriggerCount[currContextId];
-						}
 
 						// iterate over dispatched functions under this context
-						for (auto itr1 = lDispatchedFunctions[currContextId].begin(); itr1 != lDispatchedFunctions[currContextId].end(); itr1++) {
-							 // *itr1 -> Context
-							 Context currFunctionContext = *itr1; // current function context
-							 string currContextString = getContextString(currFunctionContext, false); // current function context __string
-							 string funContextId = getContextDispatchId(id, currContext, currFunctionContext); // id to get function context call count for given call id
-							 int functionContextCallCount = lDispatchedFunctionsCount[funContextId]; // current function context __call count
+						for (auto itr1 = dispatch_data.version_called_count.begin(); itr1 != dispatch_data.version_called_count.end(); itr1++) {
+							// *itr1 -> Context
+							Context version_context = itr1->first; // current function context
+							int functionContextCallCount = itr1->second; // current function context __call count
+							string currContextString = getContextString(version_context, false); // current function context __string
 
-							 contextsDispatched << "[" << functionContextCallCount << "]" << currContextString << " ";
+							contextsDispatched << "[" << functionContextCallCount << "]" << currContextString << " ";
 						}
 						// print row
 						myfile
 							<< i++ // SNO
 							<< del
-							<< id // id
+							<< fun_id // id
 							<< del
 							<< name // name
 							<< del
-							<< currContextPIRTriggerCount // call context PIR trigger count
+							<< dispatch_data.successful_compilation_count // number of successful compilations in this context
 							<< del
-							<< currContextCallCount // call context count
+							<< dispatch_data.failed_compilation_count // number of failed compilations in this context
+							<< del
+							<< dispatch_data.call_count_in_ctxt // call context count
 							<< del
 							<< currContextString // call context
 							<< del
@@ -359,11 +355,10 @@ namespace rir {
 
 	} // namespace
 
-std::unique_ptr<FileLogger> fileLogger = std::unique_ptr<FileLogger>(
-	getenv("CONTEXT_LOGS") ? new FileLogger : nullptr);
+auto fileLogger = getenv("CONTEXT_LOGS") ? std::make_unique<FileLogger>() : nullptr;
 
 void ContextualProfiling::createCallEntry(
-		CallContext& call) {
+		CallContext const& call) {
 	if(fileLogger) {
 		fileLogger->createEntry(call);
 	}
@@ -379,40 +374,40 @@ void ContextualProfiling::recordCodePoint(
 	}
 }
 
-std::string ContextualProfiling::getFunctionName(CallContext& cc) {
+size_t ContextualProfiling::getEntryKey(CallContext const& cc) {
 	if(fileLogger) {
-		return fileLogger->getFunctionName(cc);
-	} else {
-		return "ERR <ContextualProfiler>";
-	}
-}
-
-size_t ContextualProfiling::getEntryKey(CallContext& cc) {
-	if(fileLogger) {
-		return fileLogger->getEntryKey(cc);
+		return fileLogger->getEntryKey(cc.callee);
 	} else {
 		return 0;
-	}
-}
-
-void ContextualProfiling::addRirCallData(
-	size_t id,
-	std::string name,
-	Context context,
-	bool trigger
-) {
-	if(fileLogger) {
-		return fileLogger->createRirCallEntry(id, name, context, trigger);
 	}
 }
 
 void ContextualProfiling::addFunctionDispatchInfo(
 	size_t id,
 	Context contextCaller,
-	Function f
+	Function const &f
 ) {
 	if(fileLogger) {
 		return fileLogger->addFunctionDispatchInfo(id, contextCaller, f);
+	}
+}
+
+
+void ContextualProfiling::countSuccessfulCompilation(
+	SEXP callee,
+	Context assumptions
+) {
+	if (fileLogger) {
+		fileLogger->countSuccessfulCompilation(callee, assumptions);
+	}
+}
+
+void ContextualProfiling::countFailedCompilation(
+	SEXP callee,
+	Context assumptions
+) {
+	if (fileLogger) {
+		fileLogger->countFailedCompilation(callee, assumptions);
 	}
 }
 

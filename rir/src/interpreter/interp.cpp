@@ -1056,9 +1056,7 @@ RIR_INLINE SEXP rirCall(CallContext& call, InterpreterInstance* ctx) {
 
     // For Logger -- START
     size_t lMethodId = ContextualProfiling::getEntryKey(call);
-    std::string lMethodName = ContextualProfiling::getFunctionName(call);
     Context lContext = call.givenContext;
-    bool compilationTrigger = false;
     // For Logger -- END
 
     if (!isDeoptimizing() && RecompileHeuristic(table, fun)) {
@@ -1072,19 +1070,11 @@ RIR_INLINE SEXP rirCall(CallContext& call, InterpreterInstance* ctx) {
         fun->clearDisabledAssumptions(given);
         if (RecompileCondition(table, fun, given)) {
             if (given.includes(pir::Compiler::minimalContext)) {
-                compilationTrigger = true;
                 DoRecompile(fun, call.ast, call.callee, given, ctx);
                 fun = dispatch(call, table);
             }
         }
     }
-
-    ContextualProfiling::addRirCallData(
-        lMethodId,
-        lMethodName,
-        lContext,
-        compilationTrigger
-    );
 
     ContextualProfiling::addFunctionDispatchInfo(
         lMethodId,
