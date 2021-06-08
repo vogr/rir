@@ -161,10 +161,8 @@ namespace rir {
 				auto & entry = entries[fun_id];
 				entry.total_call_count++;
 
-				// create or get call context data
-				auto & ctxt_data = entry.dispatch_data[call.givenContext];
-				ctxt_data.call_count_in_ctxt++;
-
+				// /!\ do not rely on call.givenContext here, it will
+				// be inferred just before the compilation happens
 
 				// TODO CREATE CALL GRAPHS FOR CONTINUING CALL CONTEXTS
 			}
@@ -177,15 +175,19 @@ namespace rir {
 				Context version_context = f.context();
 
 				// find entry for this function
+				// entry must have been previously created by a call to createEntry
 				auto & entry = entries.at(id);
-				// find part relative to this context
-				auto & dispatch_data = entry.dispatch_data.at(call_context);
+
+				// create or get call context data
+				auto & ctxt_data = entry.dispatch_data[call_context];
+				ctxt_data.call_count_in_ctxt++;
 
 				// count one call in the context callContextId  to version compiled for funContextId
-				dispatch_data.version_called_count[version_context]++;
+				ctxt_data.version_called_count[version_context]++;
 			}
 
-
+			// For the two functions below: function entry must have been previously
+			// created by createEntry, context entry may not exist yet
 			void countSuccessfulCompilation(
 				SEXP callee,
 				Context call_ctxt
@@ -193,7 +195,7 @@ namespace rir {
 				size_t entry_key = getEntryKey(callee);
 
 				auto & entry = entries.at(entry_key);
-				auto & dispatch_data = entry.dispatch_data.at(call_ctxt);
+				auto & dispatch_data = entry.dispatch_data[call_ctxt];
 
 				dispatch_data.successful_compilation_count++;
 			}
@@ -205,7 +207,7 @@ namespace rir {
 				size_t entry_key = getEntryKey(callee);
 
 				auto & entry = entries.at(entry_key);
-				auto & dispatch_data = entry.dispatch_data.at(call_ctxt);
+				auto & dispatch_data = entry.dispatch_data[call_ctxt];
 
 				dispatch_data.failed_compilation_count++;
 			}
