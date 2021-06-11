@@ -88,7 +88,7 @@ namespace rir {
 				string runId = runId_ss.str();
 
 				myfile.open("profile/" + runId + ".csv");
-				myfile << "SNO,ID,NAME,CMP_SUCCESS,CMP_FAIL,CONTEXT_CALLED,CALL TypeFlags,CALL Assumptions,DISPATCHED FUNCTIONS\n";
+				myfile << "ID,NAME,CONTEXT,N_CALL,CMP_SUCCESS,CMP_FAIL,DISPATCHED FUNCTIONS\n";
 			}
 
 			static size_t getEntryKey(SEXP callee) {
@@ -211,81 +211,107 @@ namespace rir {
 			}
 
 
-			std::string getContextString(Context c, bool del) {
+			std::string getContextString(Context c) {
 				stringstream contextString;
-				contextString << "< ";
-				TypeAssumption types[] = {
-				    TypeAssumption::Arg0IsEager_,
-				    TypeAssumption::Arg1IsEager_,
-				    TypeAssumption::Arg2IsEager_,
-				    TypeAssumption::Arg3IsEager_,
-				    TypeAssumption::Arg4IsEager_,
-				    TypeAssumption::Arg5IsEager_,
-				    TypeAssumption::Arg0IsNonRefl_,
-				    TypeAssumption::Arg1IsNonRefl_,
-				    TypeAssumption::Arg2IsNonRefl_,
-				    TypeAssumption::Arg3IsNonRefl_,
-				    TypeAssumption::Arg4IsNonRefl_,
-				    TypeAssumption::Arg5IsNonRefl_,
-				    TypeAssumption::Arg0IsNotObj_,
-				    TypeAssumption::Arg1IsNotObj_,
-				    TypeAssumption::Arg2IsNotObj_,
-				    TypeAssumption::Arg3IsNotObj_,
-				    TypeAssumption::Arg4IsNotObj_,
-				    TypeAssumption::Arg5IsNotObj_,
-				    TypeAssumption::Arg0IsSimpleInt_,
-				    TypeAssumption::Arg1IsSimpleInt_,
-				    TypeAssumption::Arg2IsSimpleInt_,
-				    TypeAssumption::Arg3IsSimpleInt_,
-				    TypeAssumption::Arg4IsSimpleInt_,
-				    TypeAssumption::Arg5IsSimpleInt_,
-				    TypeAssumption::Arg0IsSimpleReal_,
-				    TypeAssumption::Arg1IsSimpleReal_,
-				    TypeAssumption::Arg2IsSimpleReal_,
-				    TypeAssumption::Arg3IsSimpleReal_,
-				    TypeAssumption::Arg4IsSimpleReal_,
-				    TypeAssumption::Arg5IsSimpleReal_,
+				contextString << "<";
+				TypeAssumption types[5][6] = {
+					{
+						TypeAssumption::Arg0IsEager_,
+						TypeAssumption::Arg1IsEager_,
+						TypeAssumption::Arg2IsEager_,
+						TypeAssumption::Arg3IsEager_,
+						TypeAssumption::Arg4IsEager_,
+						TypeAssumption::Arg5IsEager_,
+					},
+					{
+						TypeAssumption::Arg0IsNonRefl_,
+						TypeAssumption::Arg1IsNonRefl_,
+						TypeAssumption::Arg2IsNonRefl_,
+						TypeAssumption::Arg3IsNonRefl_,
+						TypeAssumption::Arg4IsNonRefl_,
+						TypeAssumption::Arg5IsNonRefl_,
+					},
+					{
+						TypeAssumption::Arg0IsNotObj_,
+						TypeAssumption::Arg1IsNotObj_,
+						TypeAssumption::Arg2IsNotObj_,
+						TypeAssumption::Arg3IsNotObj_,
+						TypeAssumption::Arg4IsNotObj_,
+						TypeAssumption::Arg5IsNotObj_,
+					},
+					{
+						TypeAssumption::Arg0IsSimpleInt_,
+						TypeAssumption::Arg1IsSimpleInt_,
+						TypeAssumption::Arg2IsSimpleInt_,
+						TypeAssumption::Arg3IsSimpleInt_,
+						TypeAssumption::Arg4IsSimpleInt_,
+						TypeAssumption::Arg5IsSimpleInt_,
+					},
+					{
+						TypeAssumption::Arg0IsSimpleReal_,
+						TypeAssumption::Arg1IsSimpleReal_,
+						TypeAssumption::Arg2IsSimpleReal_,
+						TypeAssumption::Arg3IsSimpleReal_,
+						TypeAssumption::Arg4IsSimpleReal_,
+						TypeAssumption::Arg5IsSimpleReal_,
+					}
 				};
 
-				int iT, jT;
-				for(iT = 0; iT < 5; iT++) {
-				    std::string currentCheck = "";
-				    switch(iT) {
-				        case 0:
-				            currentCheck = "Eager"; break;
-				        case 1:
-				            currentCheck = "NonReflective"; break;
-				        case 2:
-				            currentCheck = "NotObj"; break;
-				        case 3:
-				            currentCheck = "SimpleInt"; break;
-				        default:
-				            currentCheck = "SimpleReal";
-				    }
-				    for(jT = 0; jT < 6; jT++) {
-				        if(c.includes(types[iT*6 + jT])) {
-							contextString << "Arg" << std::to_string(jT) << currentCheck << " ";
+
+				// assumptions:
+				//    Eager
+				//    non reflective
+				//    non object
+				//    simple Integer
+				//    simple Real
+				std::vector<char> letters = {'E', 'r', 'o', 'I', 'R'};
+				for(int i_arg = 0; i_arg < 6; i_arg++) {
+					std::vector<char> arg_str;
+				    for(int i_assum = 0; i_assum < 5; i_assum++) {
+				        if(c.includes(types[i_assum][i_arg])) {
+							arg_str.emplace_back(letters.at(i_assum));
 				        }
 				    }
+					if (! arg_str.empty()) {
+						contextString << i_arg << ":";
+						for(auto c : arg_str) {
+							contextString << c;
+						}
+						contextString << " ";
+					}
 				}
-				if (del) {
-					contextString << " >,< ";
-				} else {
-					contextString << " >|< ";
-				}
+
+				contextString << "|";
+
+				vector<string> assum_strings;
 				if(c.includes(Assumption::CorrectOrderOfArguments)) {
-					contextString << " CorrectOrderOfArguments ";
+					assum_strings.emplace_back("O");
 				}
+
 				if(c.includes(Assumption::NoExplicitlyMissingArgs)) {
-					contextString << " NoExplicitlyMissingArgs ";
+					assum_strings.emplace_back("mi");
 				}
+
 				if(c.includes(Assumption::NotTooManyArguments)) {
-					contextString << " NotTooManyArguments ";
+					assum_strings.emplace_back("ma");
 				}
+
 				if(c.includes(Assumption::StaticallyArgmatched)) {
-					contextString << " StaticallyArgmatched ";
+					assum_strings.emplace_back("Stat");
 				}
-				contextString << " >";
+
+				if (! assum_strings.empty()) {
+					contextString << " ";
+				}
+
+				for(size_t i = 0 ; i < assum_strings.size(); i++) {
+					contextString << assum_strings[i];
+					if (i < assum_strings.size() - 1) {
+						contextString << "-";
+					}
+				}
+
+				contextString << ">";
 				return contextString.str();
 			}
 
@@ -301,47 +327,44 @@ namespace rir {
 			}
 
 			~FileLogger() {
-				int i=0;
-				for (auto ir = entries.begin(); ir != entries.end(); ++ir) {
-					auto fun_id = ir->first;
-					auto & entry = ir->second;
+				for (auto const & ir : entries) {
+					auto fun_id = ir.first;
+					auto & entry = ir.second;
 					string name = names.at(fun_id)->get_name(); // function name
 
 					// iterate over contexts
-					for (auto itr = entry.dispatch_data.begin(); itr != entry.dispatch_data.end(); itr++) {
+					for (auto const & itr : entry.dispatch_data) {
 						// *itr -> Context
-						auto call_ctxt = itr->first; // current context __id
-						auto & dispatch_data = itr->second; // current context
+						auto call_ctxt = itr.first; // current context __id
+						auto & dispatch_data = itr.second; // current context
 
-						string currContextString = getContextString(call_ctxt, true); // current context __string
+						string currContextString = getContextString(call_ctxt); // current context __string
 
 						stringstream contextsDispatched;
 
 
 						// iterate over dispatched functions under this context
-						for (auto itr1 = dispatch_data.version_called_count.begin(); itr1 != dispatch_data.version_called_count.end(); itr1++) {
+						for (auto const & itr1 : dispatch_data.version_called_count) {
 							// *itr1 -> Context
-							Context version_context = itr1->first; // current function context
-							int functionContextCallCount = itr1->second; // current function context __call count
-							string currContextString = getContextString(version_context, false); // current function context __string
+							Context version_context = itr1.first; // current function context
+							int functionContextCallCount = itr1.second; // current function context __call count
+							string currContextString = getContextString(version_context); // current function context __string
 
 							contextsDispatched << "[" << functionContextCallCount << "]" << currContextString << " ";
 						}
 						// print row
 						myfile
-							<< i++ // SNO
-							<< del
 							<< fun_id // id
 							<< del
 							<< name // name
 							<< del
-							<< dispatch_data.successful_compilation_count // number of successful compilations in this context
-							<< del
-							<< dispatch_data.failed_compilation_count // number of failed compilations in this context
+							<< currContextString // call context
 							<< del
 							<< dispatch_data.call_count_in_ctxt // call context count
 							<< del
-							<< currContextString // call context
+							<< dispatch_data.successful_compilation_count // number of successful compilations in this context
+							<< del
+							<< dispatch_data.failed_compilation_count // number of failed compilations in this context
 							<< del
 							<< contextsDispatched.str() // functions dispatched under this context
 							<< "\n";
