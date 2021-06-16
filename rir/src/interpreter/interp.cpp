@@ -2,6 +2,7 @@
 #include "R/Funtab.h"
 #include "R/RList.h"
 #include "R/Symbols.h"
+#include "api.h"
 #include "cache.h"
 #include "compiler/compiler.h"
 #include "compiler/parameter.h"
@@ -10,9 +11,9 @@
 #include "runtime/LazyEnvironment.h"
 #include "runtime/TypeFeedback_inl.h"
 #include "safe_force.h"
+#include "utils/ContextualProfiling.h"
 #include "utils/Pool.h"
 #include "utils/measuring.h"
-#include "utils/ContextualProfiling.h"
 
 #include <assert.h>
 #include <deque>
@@ -1093,6 +1094,14 @@ RIR_INLINE SEXP rirCall(CallContext& call, InterpreterInstance* ctx) {
         lContext,
         *fun
     );
+    pir::StreamLogger logger(PirDebug);
+    {
+        std::stringstream msg_ss;
+        std::string name = ContextualProfiling::extractFunctionName(call.ast);
+        msg_ss << "Calling " << name << fun->context().getShortStringRepr()
+               << " in context " << lContext.getShortStringRepr();
+        logger.warn(msg_ss.str());
+    }
 
     bool needsEnv = fun->signature().envCreation ==
                     FunctionSignature::Environment::CallerProvided;

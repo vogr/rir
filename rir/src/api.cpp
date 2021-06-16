@@ -301,7 +301,7 @@ SEXP pirCompile(SEXP what, const Context& assumptions, const std::string& name,
     // compile to pir
     pir::Module* m = new pir::Module;
     pir::StreamLogger logger(debug);
-    logger.title("Compiling " + name);
+    logger.title("Compiling " + name + assumptions.getShortStringRepr());
     pir::Compiler cmp(m, logger);
     pir::Backend backend(logger, name);
     cmp.compileClosure(what, name, assumptions, true,
