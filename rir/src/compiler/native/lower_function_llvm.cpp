@@ -185,8 +185,8 @@ void LowerFunctionLLVM::insn_assert(llvm::Value* v, const char* msg,
         call(NativeBuiltins::get(NativeBuiltins::Id::printValue), {p});
     call(NativeBuiltins::get(NativeBuiltins::Id::assertFail),
          {convertToPointer((void*)msg, t::i8, true)});
-    builder.CreateRet(builder.CreateIntToPtr(c(nullptr), t::SEXP));
 
+    builder.CreateUnreachable();
     builder.SetInsertPoint(ok);
 }
 
@@ -908,6 +908,7 @@ void LowerFunctionLLVM::setVal(Instruction* i, llvm::Value* val) {
 llvm::Value* LowerFunctionLLVM::isExternalsxp(llvm::Value* v, uint32_t magic) {
     assert(v->getType() == t::SEXP);
     auto isExternalsxp = builder.CreateICmpEQ(c(EXTERNALSXP), sexptype(v));
+
     auto es = builder.CreateBitCast(dataPtr(v, false),
                                     PointerType::get(t::RirRuntimeObject, 0));
     auto magicVal = builder.CreateLoad(builder.CreateGEP(es, {c(0), c(2)}));
@@ -937,9 +938,11 @@ void LowerFunctionLLVM::checkIsSexp(llvm::Value* v, const std::string& msg) {
     checking = true;
     static std::vector<std::string> strings;
     strings.push_back(std::string("expected sexp got null ") + msg);
+
     insn_assert(
         builder.CreateICmpNE(llvm::ConstantPointerNull::get(t::SEXP), v),
         strings.back().c_str());
+
     auto type = sexptype(v);
     auto validType =
         builder.CreateOr(builder.CreateICmpULE(type, c(EXTERNALSXP)),
@@ -1324,18 +1327,27 @@ void LowerFunctionLLVM::nacheck(llvm::Value* v, PirType type, BasicBlock* isNa,
     builder.SetInsertPoint(notNa);
 }
 
-llvm::Value* LowerFunctionLLVM::checkDoubleToInt(llvm::Value* ld) {
-    auto gt = builder.CreateFCmpOGT(ld, c((double)INT_MIN - 1));
-    auto lt = builder.CreateFCmpOLT(ld, c((double)INT_MAX + 1));
+llvm::Value* LowerFunctionLLVM::checkDoubleToInt(llvm::Value* ld,
+                                                 const PirType& type) {
+    if (type.isA(RType::integer))
+        return builder.getTrue();
+
+    assert(INT_MIN == NA_INTEGER); // used for lower limit
+    auto lower = c((double)INT_MIN);
+    auto upper = c((double)INT_MAX + 1);
+    auto gt = type.maybeNAOrNaN() ? builder.CreateFCmpUGT(ld, lower)
+                                  : builder.CreateFCmpOGT(ld, lower);
+    auto lt = type.maybeNAOrNaN() ? builder.CreateFCmpULT(ld, upper)
+                                  : builder.CreateFCmpOLT(ld, upper);
     auto inrange = builder.CreateAnd(lt, gt);
     auto conv = createSelect2(inrange,
                               [&]() {
                                   // converting to signed int is not undefined
                                   // here since we first check that it does not
                                   // overflow
-                                  auto conv = builder.CreateFPToSI(ld, t::i64);
+                                  auto conv = builder.CreateFPToSI(ld, t::Int);
                                   conv = builder.CreateSIToFP(conv, t::Double);
-                                  return builder.CreateFCmpUEQ(ld, conv);
+                                  return builder.CreateFCmpOEQ(ld, conv);
                               },
                               [&]() { return builder.getFalse(); });
     return conv;
@@ -1881,6 +1893,7 @@ void LowerFunctionLLVM::envStubSet(llvm::Value* x, int i, llvm::Value* y,
 #ifdef ENABLE_SLOWASSERT
             insn_assert(isExternalsxp(x, LAZY_ENVIRONMENT_MAGIC),
                         "envStubGet on something which is not an env stub");
+
 #endif
             auto le = builder.CreateBitCast(
                 dataPtr(x, false), PointerType::get(t::LazyEnvironment, 0));
@@ -2028,6 +2041,7 @@ void LowerFunctionLLVM::compile() {
     builder.SetInsertPoint(entryBlock);
 
     if (LLVMDebugInfo()) {
+        DI->emitLocation(builder, 0);
         std::array<llvm::DIType*, 4> argDITypes = {
             DI->VoidPtrType, DI->VoidPtrType, DI->SEXPType, DI->SEXPType};
         auto arg = fun->arg_begin();
@@ -3365,26 +3379,10 @@ void LowerFunctionLLVM::compile() {
                         }
                     }
                     if (nativeTarget) {
-                        // TODO: callId is not used here.. should it be?
-                        auto trg = getFunction(target);
-                        if (trg &&
-                            target->properties.includes(
-                                ClosureVersion::Property::NoReflection)) {
-                            auto code = builder.CreateIntToPtr(
-                                c(nativeTarget->body()), t::voidPtr);
-                            llvm::Value* arglist = nodestackPtr();
-                            auto rr = withCallFrame(args, [&]() {
-                                return builder.CreateCall(
-                                    trg, {code, arglist, loadSxp(i->env()),
-                                          constant(callee, t::SEXP)});
-                            });
-                            setVal(i, rr);
-                            break;
-                        }
-
                         assert(
                             asmpt.includes(Assumption::StaticallyArgmatched));
                         auto idx = Pool::makeSpace();
+                        NativeBuiltins::targetCaches.push_back(idx);
                         Pool::patch(idx, nativeTarget->container());
                         assert(asmpt.smaller(nativeTarget->context()));
                         auto res = withCallFrame(args, [&]() {
@@ -3643,9 +3641,8 @@ void LowerFunctionLLVM::compile() {
                                      {a->getType(), b->getType()}, {a, b});
                              },
                              [&](llvm::Value* a, llvm::Value* b) {
-                                 return builder.CreateIntrinsic(
-                                     Intrinsic::pow,
-                                     {a->getType(), b->getType()}, {a, b});
+                                 return builder.CreateBinaryIntrinsic(
+                                     Intrinsic::pow, a, b);
                              },
                              BinopKind::POW);
                 break;
@@ -4201,7 +4198,8 @@ void LowerFunctionLLVM::compile() {
                         arg->type.maybe(RType::real) &&
                         !t->typeTest.maybe(RType::real)) {
                         setVal(i, builder.CreateZExt(
-                                      checkDoubleToInt(load(arg)), t::Int));
+                                      checkDoubleToInt(load(arg), arg->type),
+                                      t::Int));
                     } else {
                         setVal(i, c(1));
                     }
@@ -4770,14 +4768,16 @@ void LowerFunctionLLVM::compile() {
                 if (fastcase) {
                     auto fallback =
                         BasicBlock::Create(PirJitLLVM::getContext(), "", fun);
-                    auto hit2 =
-                        BasicBlock::Create(PirJitLLVM::getContext(), "", fun);
+
                     done =
                         BasicBlock::Create(PirJitLLVM::getContext(), "", fun);
 
                     llvm::Value* vector = load(extract->vec());
 
                     if (Representation::Of(extract->vec()) == t::SEXP) {
+                        auto hit2 = BasicBlock::Create(PirJitLLVM::getContext(),
+                                                       "", fun);
+
                         builder.CreateCondBr(isAltrep(vector), fallback, hit2,
                                              branchMostlyFalse);
                         builder.SetInsertPoint(hit2);
@@ -5357,7 +5357,7 @@ void LowerFunctionLLVM::compile() {
                         incrementNamed(val);
                         envStubSet(e, idx, val, environment->nLocals(),
                                    !st->isStArg);
-                        builder.CreateBr(done);
+
                     } else {
                         ensureNamed(val);
                         envStubSet(e, idx, val, environment->nLocals(),
@@ -5567,9 +5567,9 @@ void LowerFunctionLLVM::compile() {
                 };
 
                 auto sequenceIsReal =
-                    Representation::Of(a) != Representation::Real
-                        ? builder.getFalse()
-                        : builder.CreateNot(checkDoubleToInt(load(a)));
+                    Representation::Of(a) == Representation::Real
+                        ? builder.CreateNot(checkDoubleToInt(load(a), a->type))
+                        : builder.getFalse();
 
                 auto res = createSelect2(
                     sequenceIsReal,
@@ -5580,8 +5580,9 @@ void LowerFunctionLLVM::compile() {
                     },
                     [&]() -> llvm::Value* {
                         auto sequenceIsAmbiguous =
-                            Representation::Of(b) == Representation::Real
-                                ? builder.CreateNot(checkDoubleToInt(load(b)))
+                            Representation::Of(a) == Representation::Real
+                                ? builder.CreateNot(
+                                      checkDoubleToInt(load(b), b->type))
                                 : builder.getFalse();
 
                         return createSelect2(
