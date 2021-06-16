@@ -34,6 +34,7 @@ class ContextualProfiling {
       SEXP,
       Context
     );
+    static std::string extractFunctionName(SEXP call);
 };
 
 } // namespace rir

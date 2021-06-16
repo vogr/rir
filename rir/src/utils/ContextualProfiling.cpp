@@ -105,26 +105,16 @@ namespace rir {
 			}
 
 			void registerFunctionName(CallContext const& call) {
-				static const SEXP double_colons = Rf_install("::");
-				static const SEXP triple_colons = Rf_install(":::");
 				size_t const currentKey = getEntryKey(call.callee);
-				SEXP const lhs = CAR(call.ast);
 
 				if (names.count(currentKey) == 0 || names[currentKey]->is_anon() ) {
-					if (TYPEOF(lhs) == SYMSXP) {
-						// case 1: function call of the form f(x,y,z)
-						names[currentKey] = make_unique<FunLabel_named>(CHAR(PRINTNAME(lhs)));
-					} else if (TYPEOF(lhs) == LANGSXP && ((CAR(lhs) == double_colons) || (CAR(lhs) == triple_colons))) {
-						// case 2: function call of the form pkg::f(x,y,z) or pkg:::f(x,y,z)
-						SEXP const fun1 = CAR(lhs);
-						SEXP const pkg = CADR(lhs);
-						SEXP const fun2 = CADDR(lhs);
-						assert(TYPEOF(pkg) == SYMSXP && TYPEOF(fun2) == SYMSXP);
-						stringstream ss;
-						ss << CHAR(PRINTNAME(pkg)) << CHAR(PRINTNAME(fun1)) << CHAR(PRINTNAME(fun2));
-						names[currentKey] = make_unique<FunLabel_named>(ss.str());
-					}
-				}
+                                    std::string name = ContextualProfiling::
+                                        extractFunctionName(call.ast);
+                                    if (name.length() > 0) {
+                                        names[currentKey] =
+                                            make_unique<FunLabel_named>(name);
+                                    }
+                                }
 				if (names.count(currentKey) == 0) {
 					// case 3: function call of the form F()(x, y, z)
 					// and this anonymous function has not been seen before
@@ -213,110 +203,6 @@ namespace rir {
 			}
 
 
-			std::string getContextString(Context c) {
-				stringstream contextString;
-				contextString << "<";
-				TypeAssumption types[5][6] = {
-					{
-						TypeAssumption::Arg0IsEager_,
-						TypeAssumption::Arg1IsEager_,
-						TypeAssumption::Arg2IsEager_,
-						TypeAssumption::Arg3IsEager_,
-						TypeAssumption::Arg4IsEager_,
-						TypeAssumption::Arg5IsEager_,
-					},
-					{
-						TypeAssumption::Arg0IsNonRefl_,
-						TypeAssumption::Arg1IsNonRefl_,
-						TypeAssumption::Arg2IsNonRefl_,
-						TypeAssumption::Arg3IsNonRefl_,
-						TypeAssumption::Arg4IsNonRefl_,
-						TypeAssumption::Arg5IsNonRefl_,
-					},
-					{
-						TypeAssumption::Arg0IsNotObj_,
-						TypeAssumption::Arg1IsNotObj_,
-						TypeAssumption::Arg2IsNotObj_,
-						TypeAssumption::Arg3IsNotObj_,
-						TypeAssumption::Arg4IsNotObj_,
-						TypeAssumption::Arg5IsNotObj_,
-					},
-					{
-						TypeAssumption::Arg0IsSimpleInt_,
-						TypeAssumption::Arg1IsSimpleInt_,
-						TypeAssumption::Arg2IsSimpleInt_,
-						TypeAssumption::Arg3IsSimpleInt_,
-						TypeAssumption::Arg4IsSimpleInt_,
-						TypeAssumption::Arg5IsSimpleInt_,
-					},
-					{
-						TypeAssumption::Arg0IsSimpleReal_,
-						TypeAssumption::Arg1IsSimpleReal_,
-						TypeAssumption::Arg2IsSimpleReal_,
-						TypeAssumption::Arg3IsSimpleReal_,
-						TypeAssumption::Arg4IsSimpleReal_,
-						TypeAssumption::Arg5IsSimpleReal_,
-					}
-				};
-
-
-				// assumptions:
-				//    Eager
-				//    non reflective
-				//    non object
-				//    simple Integer
-				//    simple Real
-				std::vector<char> letters = {'E', 'r', 'o', 'I', 'R'};
-				for(int i_arg = 0; i_arg < 6; i_arg++) {
-					std::vector<char> arg_str;
-				    for(int i_assum = 0; i_assum < 5; i_assum++) {
-				        if(c.includes(types[i_assum][i_arg])) {
-							arg_str.emplace_back(letters.at(i_assum));
-				        }
-				    }
-					if (! arg_str.empty()) {
-						contextString << i_arg << ":";
-						for(auto c : arg_str) {
-							contextString << c;
-						}
-						contextString << " ";
-					}
-				}
-
-				contextString << "|";
-
-				vector<string> assum_strings;
-				if(c.includes(Assumption::CorrectOrderOfArguments)) {
-					assum_strings.emplace_back("O");
-				}
-
-				if(c.includes(Assumption::NoExplicitlyMissingArgs)) {
-					assum_strings.emplace_back("mi");
-				}
-
-				if(c.includes(Assumption::NotTooManyArguments)) {
-					assum_strings.emplace_back("ma");
-				}
-
-				if(c.includes(Assumption::StaticallyArgmatched)) {
-					assum_strings.emplace_back("Stat");
-				}
-
-				if (! assum_strings.empty()) {
-					contextString << " ";
-				}
-
-				for(size_t i = 0 ; i < assum_strings.size(); i++) {
-					contextString << assum_strings[i];
-					if (i < assum_strings.size() - 1) {
-						contextString << "-";
-					}
-				}
-
-				contextString << ">";
-				return contextString.str();
-			}
-
 			void createCodePointEntry(
 				int line,
 				std::string function,
@@ -340,20 +226,28 @@ namespace rir {
 						auto call_ctxt = itr.first; // current context __id
 						auto & dispatch_data = itr.second; // current context
 
-						string currContextString = getContextString(call_ctxt); // current context __string
+                                                string currContextString =
+                                                    call_ctxt
+                                                        .getShortStringRepr(); // current context __string
 
-						stringstream contextsDispatched;
+                                                stringstream contextsDispatched;
 
-
-						// iterate over dispatched functions under this context
+                                                // iterate over dispatched functions under this context
 						for (auto const & itr1 : dispatch_data.version_called_count) {
 							// *itr1 -> Context
 							Context version_context = itr1.first; // current function context
 							int functionContextCallCount = itr1.second; // current function context __call count
-							string currContextString = getContextString(version_context); // current function context __string
+                                                        string currContextString =
+                                                            version_context
+                                                                .getShortStringRepr(); // current function context __string
 
-							contextsDispatched << "[" << functionContextCallCount << "]" << currContextString << " ";
-						}
+                                                        contextsDispatched
+                                                            << "["
+                                                            << functionContextCallCount
+                                                            << "]"
+                                                            << currContextString
+                                                            << " ";
+                                                }
 						// print row
 						myfile
 							<< fun_id // id
@@ -381,6 +275,28 @@ namespace rir {
 	} // namespace
 
 auto fileLogger = getenv("CONTEXT_LOGS") ? std::make_unique<FileLogger>() : nullptr;
+
+std::string ContextualProfiling::extractFunctionName(SEXP call) {
+    static const SEXP double_colons = Rf_install("::");
+    static const SEXP triple_colons = Rf_install(":::");
+    SEXP const lhs = CAR(call);
+    if (TYPEOF(lhs) == SYMSXP) {
+        // case 1: function call of the form f(x,y,z)
+        return CHAR(PRINTNAME(lhs));
+    } else if (TYPEOF(lhs) == LANGSXP &&
+               ((CAR(lhs) == double_colons) || (CAR(lhs) == triple_colons))) {
+        // case 2: function call of the form pkg::f(x,y,z) or pkg:::f(x,y,z)
+        SEXP const fun1 = CAR(lhs);
+        SEXP const pkg = CADR(lhs);
+        SEXP const fun2 = CADDR(lhs);
+        assert(TYPEOF(pkg) == SYMSXP && TYPEOF(fun2) == SYMSXP);
+        stringstream ss;
+        ss << CHAR(PRINTNAME(pkg)) << CHAR(PRINTNAME(fun1))
+           << CHAR(PRINTNAME(fun2));
+        return ss.str();
+    }
+    return "";
+}
 
 void ContextualProfiling::createCallEntry(
 		CallContext const& call) {

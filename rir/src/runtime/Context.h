@@ -96,12 +96,14 @@ struct Context {
         memcpy((void*)this, &val, sizeof(*this));
     }
 
-    unsigned long toI() {
+    unsigned long toI() const {
         static_assert(sizeof(*this) == sizeof(unsigned long), "");
         uint64_t m;
         memcpy(&m, this, sizeof(*this));
         return m;
     }
+
+    std::string getShortStringRepr() const;
 
     RIR_INLINE void add(Assumption a) { flags.set(a); }
     RIR_INLINE void remove(Assumption a) { flags.reset(a); }
