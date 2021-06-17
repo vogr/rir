@@ -10,7 +10,7 @@
 #include <functional>
 #include <chrono>
 #include <ctime>
-
+#include <sys/stat.h>
 
 namespace rir {
 
@@ -58,15 +58,13 @@ namespace rir {
 		class ContextDispatchData {
 			public:
 			int call_count_in_ctxt = 0;
-			int successful_compilation_count = 0;
-			int failed_compilation_count = 0;
 			// Count the number of time the version for the context C
 			// has been called in this context in
 			//     version_called_count[C]
 			unordered_map<Context, int> version_called_count;
 		};
 
-		class Entry {
+		class CallEntry {
 			public:
 			int total_call_count = 0;
 			// per context call and dispatch data
@@ -75,11 +73,26 @@ namespace rir {
 
 		// Map from a function (identified by its body) to the data about the
 		// different contexts it has been called in
-		unordered_map<size_t, Entry> entries;
+		unordered_map<size_t, CallEntry> call_entries;
 
-		struct FileLogger {
-			ofstream myfile;
 
+		class CompilationData {
+			public:
+			bool success;
+			double cmp_time_ms;
+		};
+
+		using CompilationEntry =
+			unordered_map<Context, std::vector<CompilationData>>;
+
+		std::unordered_map<size_t, CompilationEntry> compilation_entries;
+
+		class FileLogger {
+			private:
+			ofstream file_call_stats;
+			ofstream file_compile_stats;
+
+			public:
 			FileLogger() {
 				// use ISO 8601 date as log name
 				time_t timenow = chrono::system_clock::to_time_t(chrono::system_clock::now());
@@ -87,8 +100,17 @@ namespace rir {
 				runId_ss << put_time( localtime( &timenow ), "%FT%T%z" );
 				string runId = runId_ss.str();
 
-				myfile.open("profile/" + runId + ".csv");
-				myfile << "ID,NAME,CONTEXT,N_CALL,CMP_SUCCESS,CMP_FAIL,DISPATCHED FUNCTIONS\n";
+				string out_dir = "profile/" + runId;
+				mkdir(out_dir.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+
+				string call_stats = out_dir + "/call_stats.csv";
+				string compile_stats = out_dir + "/compile_stats.csv";
+
+				file_call_stats.open(call_stats);
+				file_call_stats << "ID,NAME,CALL_CONTEXT,VERSION,CALL_COUNT\n";
+
+				file_compile_stats.open(compile_stats);
+				file_compile_stats << "ID,NAME,VERSION,ID_CMP,SUCCESS,CMP_TIME\n";
 			}
 
 			static size_t getEntryKey(SEXP callee) {
@@ -148,7 +170,7 @@ namespace rir {
 
 				auto fun_id = getEntryKey(call.callee);
 				// create or get entry
-				auto & entry = entries[fun_id];
+				auto & entry = call_entries[fun_id];
 				entry.total_call_count++;
 
 				// /!\ do not rely on call.givenContext here, it will
@@ -166,7 +188,7 @@ namespace rir {
 
 				// find entry for this function
 				// entry must have been previously created by a call to createEntry
-				auto & entry = entries.at(id);
+				auto & entry = call_entries.at(id);
 
 				// create or get call context data
 				auto & ctxt_data = entry.dispatch_data[call_context];
@@ -178,28 +200,18 @@ namespace rir {
 
 			// For the two functions below: function entry must have been previously
 			// created by createEntry, context entry may not exist yet
-			void countSuccessfulCompilation(
+			void countCompilation(
 				SEXP callee,
-				Context call_ctxt
+				Context call_ctxt,
+				bool success,
+				double cmp_time_ms
 			) {
 				size_t entry_key = getEntryKey(callee);
 
-				auto & entry = entries.at(entry_key);
-				auto & dispatch_data = entry.dispatch_data[call_ctxt];
+				CompilationData d {success, cmp_time_ms};
 
-				dispatch_data.successful_compilation_count++;
-			}
-
-			void countFailedCompilation(
-				SEXP callee,
-				Context call_ctxt
-			) {
-				size_t entry_key = getEntryKey(callee);
-
-				auto & entry = entries.at(entry_key);
-				auto & dispatch_data = entry.dispatch_data[call_ctxt];
-
-				dispatch_data.failed_compilation_count++;
+				auto & cmp_entry = compilation_entries[entry_key];
+				cmp_entry[call_ctxt].push_back(d);
 			}
 
 
@@ -215,7 +227,7 @@ namespace rir {
 			}
 
 			~FileLogger() {
-				for (auto const & ir : entries) {
+				for (auto const & ir : call_entries) {
 					auto fun_id = ir.first;
 					auto & entry = ir.second;
 					string name = names.at(fun_id)->get_name(); // function name
@@ -225,51 +237,62 @@ namespace rir {
 						// *itr -> Context
 						auto call_ctxt = itr.first; // current context __id
 						auto & dispatch_data = itr.second; // current context
+						string callContextString = call_ctxt.getShortStringRepr(); // current context __string
 
-                                                string currContextString =
-                                                    call_ctxt
-                                                        .getShortStringRepr(); // current context __string
-
-                                                stringstream contextsDispatched;
-
-                                                // iterate over dispatched functions under this context
+						// iterate over dispatched functions under this context
 						for (auto const & itr1 : dispatch_data.version_called_count) {
 							// *itr1 -> Context
 							Context version_context = itr1.first; // current function context
 							int functionContextCallCount = itr1.second; // current function context __call count
-                                                        string currContextString =
-                                                            version_context
-                                                                .getShortStringRepr(); // current function context __string
-
-                                                        contextsDispatched
-                                                            << "["
-                                                            << functionContextCallCount
-                                                            << "]"
-                                                            << currContextString
-                                                            << " ";
-                                                }
+							string versionContextString = version_context.getShortStringRepr(); // current function context __string
+							file_call_stats
+								<< fun_id // id
+								<< del
+								<< name // name
+								<< del
+								<< callContextString // call context
+								<< del
+								<< versionContextString
+								<< del
+								<< functionContextCallCount // number of time this version is called in this context
+								<< "\n";
+						}
 						// print row
-						myfile
-							<< fun_id // id
-							<< del
-							<< name // name
-							<< del
-							<< currContextString // call context
-							<< del
-							<< dispatch_data.call_count_in_ctxt // call context count
-							<< del
-							<< dispatch_data.successful_compilation_count // number of successful compilations in this context
-							<< del
-							<< dispatch_data.failed_compilation_count // number of failed compilations in this context
-							<< del
-							<< contextsDispatched.str() // functions dispatched under this context
-							<< "\n";
+
 					}
 				}
-				myfile.close();
-			}
+				file_call_stats.close();
 
-			public:
+				for (auto const & it_e : compilation_entries) {
+					auto fun_id = it_e.first;
+					auto & cmp_entry = it_e.second;
+					string fun_name = names.at(fun_id)->get_name(); // function name
+
+					for (auto & it_d : cmp_entry) {
+						auto version = it_d.first;
+						auto & data = it_d.second;
+
+						int cmp_id = 0;
+						for (auto & d : data) {
+							file_compile_stats
+								<< fun_id
+								<< del
+								<< fun_name
+								<< del
+								<< version.getShortStringRepr()
+								<< del
+								<< cmp_id
+								<< del
+								<< d.success
+								<< del
+								<< d.cmp_time_ms
+								<< "\n";
+							cmp_id++;
+						}
+					}
+				}
+				file_compile_stats.close();
+			}
 		};
 
 	} // namespace
@@ -334,21 +357,14 @@ void ContextualProfiling::addFunctionDispatchInfo(
 }
 
 
-void ContextualProfiling::countSuccessfulCompilation(
+void ContextualProfiling::countCompilation(
 	SEXP callee,
-	Context assumptions
+	Context assumptions,
+	bool success,
+	double cmp_time_ms
 ) {
 	if (fileLogger) {
-		fileLogger->countSuccessfulCompilation(callee, assumptions);
-	}
-}
-
-void ContextualProfiling::countFailedCompilation(
-	SEXP callee,
-	Context assumptions
-) {
-	if (fileLogger) {
-		fileLogger->countFailedCompilation(callee, assumptions);
+		fileLogger->countCompilation(callee, assumptions, success, cmp_time_ms);
 	}
 }
 

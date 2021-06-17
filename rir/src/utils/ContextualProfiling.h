@@ -26,13 +26,11 @@ class ContextualProfiling {
       Context,
       Function const&
     );
-    static void countSuccessfulCompilation(
-      SEXP,
-      Context
-    );
-    static void countFailedCompilation(
-      SEXP,
-      Context
+    static void countCompilation(
+      SEXP callee,
+      Context assumptions,
+      bool success,
+      double cmp_time_ms
     );
     static std::string extractFunctionName(SEXP call);
 };
