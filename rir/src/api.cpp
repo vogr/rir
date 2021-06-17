@@ -18,6 +18,7 @@
 
 
 #include <cassert>
+#include <chrono>
 #include <cstdio>
 #include <list>
 #include <memory>
@@ -301,7 +302,11 @@ SEXP pirCompile(SEXP what, const Context& assumptions, const std::string& name,
     // compile to pir
     pir::Module* m = new pir::Module;
     pir::StreamLogger logger(debug);
-    logger.title("Compiling " + name + assumptions.getShortStringRepr());
+
+    std::string const version_name = name + assumptions.getShortStringRepr();
+    logger.title("Compiling " + version_name);
+
+    auto t0 = std::chrono::steady_clock::now();
     pir::Compiler cmp(m, logger);
     pir::Backend backend(logger, name);
     cmp.compileClosure(what, name, assumptions, true,
@@ -326,6 +331,15 @@ SEXP pirCompile(SEXP what, const Context& assumptions, const std::string& name,
                                std::cerr << "Compilation failed\n";
                        },
                        {});
+
+    auto compilation_time = std::chrono::steady_clock::now() - t0;
+    auto compilation_time_s = std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(compilation_time);
+    {
+        std::stringstream msg;
+        msg << "Done compiling " << version_name << " (" <<
+         compilation_time_s.count() << "ms)";
+        logger.title(msg.str());
+    }
 
     delete m;
     UNPROTECT(1);
