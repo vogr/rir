@@ -37,4 +37,3 @@ benchmarks/
 external/*
 !external/custom-r
 .history
-profile

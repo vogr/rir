@@ -60,14 +60,10 @@ namespace rir {
 			int call_count_in_ctxt = 0;
 			int successful_compilation_count = 0;
 			int failed_compilation_count = 0;
-			double time_spent_in_compilation = 0;
-			double time_wasted_in_compilation = 0;
 			// Count the number of time the version for the context C
 			// has been called in this context in
 			//     version_called_count[C]
 			unordered_map<Context, int> version_called_count;
-			unordered_map<Context, int> version_success_run_count;
-			unordered_map<Context, double> version_runtime;
 		};
 
 		class Entry {
@@ -92,7 +88,7 @@ namespace rir {
 				string runId = runId_ss.str();
 
 				myfile.open("profile/" + runId + ".csv");
-				myfile << "ID,NAME,CONTEXT,N_CALL,TOTAL_RUNTIME,CMP_SUCCESS,SUCCESS_TIME,CMP_FAIL,FAIL_TIME,GOODNESS,DISPATCHED FUNCTIONS\n";
+				myfile << "ID,NAME,CONTEXT,N_CALL,CMP_SUCCESS,CMP_FAIL,DISPATCHED FUNCTIONS\n";
 			}
 
 			static size_t getEntryKey(SEXP callee) {
@@ -190,33 +186,11 @@ namespace rir {
 				ctxt_data.version_called_count[version_context]++;
 			}
 
-			void addFunctionDispatchRuntime(
-				size_t id,
-				Context call_context,
-				Function const & f,
-				std::chrono::duration<double> duration
-			) {
-				Context version_context = f.context();
-
-				// find entry for this function
-				// entry must have been previously created by a call to createEntry
-				auto & entry = entries.at(id);
-
-				// create or get call context data
-				auto & ctxt_data = entry.dispatch_data[call_context];
-
-				// count one call in the context callContextId  to version compiled for funContextId
-
-				ctxt_data.version_success_run_count[version_context]++;
-				ctxt_data.version_runtime[version_context] += duration.count();
-			}
-
 			// For the two functions below: function entry must have been previously
 			// created by createEntry, context entry may not exist yet
 			void countSuccessfulCompilation(
 				SEXP callee,
-				Context call_ctxt,
-				std::chrono::duration<double> duration
+				Context call_ctxt
 			) {
 				size_t entry_key = getEntryKey(callee);
 
@@ -224,29 +198,11 @@ namespace rir {
 				auto & dispatch_data = entry.dispatch_data[call_ctxt];
 
 				dispatch_data.successful_compilation_count++;
-
-				dispatch_data.time_spent_in_compilation += duration.count();
-
-			}
-
-			bool compileOnlyOnce(
-				size_t entry_key,
-				Context call_context
-			) {
-				auto & entry = entries.at(entry_key);
-				auto & dispatch_data = entry.dispatch_data[call_context];
-
-				if(dispatch_data.successful_compilation_count > 0 || dispatch_data.failed_compilation_count > 0) {
-					return false;
-				} else {
-					return true;
-				}
 			}
 
 			void countFailedCompilation(
 				SEXP callee,
-				Context call_ctxt,
-				std::chrono::duration<double> duration
+				Context call_ctxt
 			) {
 				size_t entry_key = getEntryKey(callee);
 
@@ -254,7 +210,6 @@ namespace rir {
 				auto & dispatch_data = entry.dispatch_data[call_ctxt];
 
 				dispatch_data.failed_compilation_count++;
-				dispatch_data.time_wasted_in_compilation += duration.count();
 			}
 
 
@@ -374,7 +329,6 @@ namespace rir {
 			}
 
 			~FileLogger() {
-				double total_time_in_compilation = 0;
 				for (auto const & ir : entries) {
 					auto fun_id = ir.first;
 					auto & entry = ir.second;
@@ -390,12 +344,6 @@ namespace rir {
 
 						stringstream contextsDispatched;
 
-						double totalRuntimeUnderContext = 0;
-
-						double goodness = false;
-						double baselineAvgRuntime = 0;
-						int otherRuntimeCount = 0;
-						double otherAvgRuntime = 0;
 
 						// iterate over dispatched functions under this context
 						for (auto const & itr1 : dispatch_data.version_called_count) {
@@ -404,32 +352,7 @@ namespace rir {
 							int functionContextCallCount = itr1.second; // current function context __call count
 							string currContextString = getContextString(version_context); // current function context __string
 
-							unordered_map<Context, int> version_success_run_count = dispatch_data.version_success_run_count;
-							unordered_map<Context, double> version_runtime = dispatch_data.version_runtime;
-
-							double success_runs = version_success_run_count[version_context];
-							double success_runtime = version_runtime[version_context];
-							double avg_runtime = 0;
-							totalRuntimeUnderContext += success_runtime;
-
-							if(success_runs > 0) {
-								avg_runtime = success_runtime / success_runs;
-							}
-							bool baseline = version_context.toI() == 0 ? true : false;
-
-							if(baseline) {
-								baselineAvgRuntime = avg_runtime;
-							} else {
-								otherRuntimeCount++;
-								otherAvgRuntime += avg_runtime;
-							}
-
-							contextsDispatched << "[" << functionContextCallCount << "]{" << avg_runtime << "}" << currContextString << " ";
-						}
-						otherAvgRuntime = otherAvgRuntime / otherRuntimeCount;
-						total_time_in_compilation += dispatch_data.time_spent_in_compilation;
-						if(otherAvgRuntime < baselineAvgRuntime) {
-							goodness = true;
+							contextsDispatched << "[" << functionContextCallCount << "]" << currContextString << " ";
 						}
 						// print row
 						myfile
@@ -441,33 +364,14 @@ namespace rir {
 							<< del
 							<< dispatch_data.call_count_in_ctxt // call context count
 							<< del
-							<< totalRuntimeUnderContext // total runtime under context
-							<< del
 							<< dispatch_data.successful_compilation_count // number of successful compilations in this context
 							<< del
-							<< dispatch_data.time_spent_in_compilation // time spent for successful compilation
-							<< del
 							<< dispatch_data.failed_compilation_count // number of failed compilations in this context
-							<< del
-							<< dispatch_data.time_wasted_in_compilation // time wasted trying to compile
-							<< del
-							<< goodness
 							<< del
 							<< contextsDispatched.str() // functions dispatched under this context
 							<< "\n";
 					}
 				}
-				myfile
-					<< del
-					<< del
-					<< del
-					<< del
-					<< del
-					<< total_time_in_compilation // Total time in compilation
-					<< del
-					<< del
-					<< del
-					<< "\n";
 				myfile.close();
 			}
 
@@ -516,51 +420,21 @@ void ContextualProfiling::addFunctionDispatchInfo(
 
 void ContextualProfiling::countSuccessfulCompilation(
 	SEXP callee,
-	Context assumptions,
-	std::chrono::duration<double> duration
+	Context assumptions
 ) {
 	if (fileLogger) {
-		fileLogger->countSuccessfulCompilation(callee, assumptions, duration);
+		fileLogger->countSuccessfulCompilation(callee, assumptions);
 	}
 }
 
 void ContextualProfiling::countFailedCompilation(
 	SEXP callee,
-	Context assumptions,
-	std::chrono::duration<double> duration
+	Context assumptions
 ) {
 	if (fileLogger) {
-		fileLogger->countFailedCompilation(callee, assumptions, duration);
+		fileLogger->countFailedCompilation(callee, assumptions);
 	}
 }
 
-bool ContextualProfiling::compileFlag(
-	size_t id,
-	Context contextCaller
-) {
-	if (getenv("SKIP_ALL_COMPILATION")) {
-		return false;
-	}
-	if (!getenv("COMPILE_ONLY_ONCE")) {
-		return true;
-	}
-	if (fileLogger) {
-		return fileLogger->compileOnlyOnce(id, contextCaller);
-	} else {
-		return true;
-	}
-}
-
-void ContextualProfiling::addFunctionDispatchRuntime(
-	size_t id,
-	Context contextCaller,
-	Function const &f,
-	std::chrono::duration<double> duration
-
-) {
-	if(fileLogger) {
-		return fileLogger->addFunctionDispatchRuntime(id, contextCaller, f, duration);
-	}
-}
 
 } // namespace rir
