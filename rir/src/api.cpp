@@ -15,7 +15,7 @@
 #include "ir/BC.h"
 #include "ir/Compiler.h"
 #include "utils/ContextualProfiling.h"
-
+#include "utils/CompilationStrategy.h"
 
 #include <cassert>
 #include <chrono>
@@ -305,6 +305,8 @@ SEXP pirCompile(SEXP what, const Context& assumptions, const std::string& name,
 
     std::string const version_name = name + assumptions.getShortStringRepr();
     logger.title("Compiling " + version_name);
+
+    CompilationStrategy::markAsCompiled(what, assumptions);
 
     auto t_compilation_start = std::chrono::steady_clock::now();
     pir::Compiler cmp(m, logger);

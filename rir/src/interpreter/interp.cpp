@@ -12,6 +12,8 @@
 #include "runtime/TypeFeedback_inl.h"
 #include "safe_force.h"
 #include "utils/ContextualProfiling.h"
+#include "utils/CompilationStrategy.h"
+#include "utils/FunctionVersion.h"
 #include "utils/Pool.h"
 #include "utils/measuring.h"
 
@@ -1068,11 +1070,11 @@ RIR_INLINE SEXP rirCall(CallContext& call, InterpreterInstance* ctx) {
     fun->registerInvocation();
 
     // For Logger -- START
-    size_t lMethodId = ContextualProfiling::getEntryKey(call);
+    size_t lMethodId = FunctionVersion::getFunctionId(call.callee);
     Context lContext = call.givenContext;
     // For Logger -- END
 
-    if (!isDeoptimizing() && RecompileHeuristic(table, fun)) {
+    if (!isDeoptimizing() && RecompileHeuristic(table, fun) && CompilationStrategy::compileFlag(lMethodId, lContext)) {
         Context given = call.givenContext;
         // addDynamicAssumptionForOneTarget compares arguments with the
         // signature of the current dispatch target. There the number of

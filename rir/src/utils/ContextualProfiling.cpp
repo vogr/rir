@@ -12,6 +12,8 @@
 #include <ctime>
 #include <sys/stat.h>
 
+#include "FunctionVersion.h"
+
 namespace rir {
 
 	namespace {
@@ -113,21 +115,8 @@ namespace rir {
 				file_compile_stats << "ID,NAME,VERSION,ID_CMP,SUCCESS,CMP_TIME\n";
 			}
 
-			static size_t getEntryKey(SEXP callee) {
-				/* Identify a function by the SEXP of its BODY. For nested functions, The
-				   enclosing CLOSXP changes every time (because the CLOENV also changes):
-				       f <- function {
-				         g <- function() { 3 }
-						 g()
-					   }
-					Here the BODY of g is always the same SEXP, but a new CLOSXP is used
-					every time f is called.
-				*/
-				return reinterpret_cast<size_t>(BODY(callee));
-			}
-
 			void registerFunctionName(CallContext const& call) {
-				size_t const currentKey = getEntryKey(call.callee);
+				size_t const currentKey = FunctionVersion::getFunctionId(call.callee);
 
 				if (names.count(currentKey) == 0 || names[currentKey]->is_anon() ) {
                                     std::string name = ContextualProfiling::
@@ -168,7 +157,7 @@ namespace rir {
 			void createEntry(CallContext const& call) {
 				registerFunctionName(call);
 
-				auto fun_id = getEntryKey(call.callee);
+				auto fun_id = FunctionVersion::getFunctionId(call.callee);
 				// create or get entry
 				auto & entry = call_entries[fun_id];
 				entry.total_call_count++;
@@ -206,7 +195,7 @@ namespace rir {
 				bool success,
 				double cmp_time_ms
 			) {
-				size_t entry_key = getEntryKey(callee);
+				size_t entry_key = FunctionVersion::getFunctionId(callee);
 
 				CompilationData d {success, cmp_time_ms};
 
@@ -335,14 +324,6 @@ void ContextualProfiling::recordCodePoint(
 		) {
 	if(fileLogger) {
 		fileLogger->createCodePointEntry(line, function, name);
-	}
-}
-
-size_t ContextualProfiling::getEntryKey(CallContext const& cc) {
-	if(fileLogger) {
-		return fileLogger->getEntryKey(cc.callee);
-	} else {
-		return 0;
 	}
 }
 

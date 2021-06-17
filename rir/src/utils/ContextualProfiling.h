@@ -18,9 +18,6 @@ class ContextualProfiling {
     //   CallContext&,
     //   std::string
     // );
-    static size_t getEntryKey(
-      CallContext const&
-    );
     static void addFunctionDispatchInfo(
       size_t,
       Context,
