@@ -1094,6 +1094,8 @@ RIR_INLINE SEXP rirCall(CallContext& call, InterpreterInstance* ctx) {
         lContext,
         *fun
     );
+
+#ifdef LOG_FUNCTION_CALLS
     pir::StreamLogger logger(PirDebug);
     {
         std::stringstream msg_ss;
@@ -1102,6 +1104,7 @@ RIR_INLINE SEXP rirCall(CallContext& call, InterpreterInstance* ctx) {
                << " in context " << lContext.getShortStringRepr();
         logger.warn(msg_ss.str());
     }
+#endif
 
     bool needsEnv = fun->signature().envCreation ==
                     FunctionSignature::Environment::CallerProvided;

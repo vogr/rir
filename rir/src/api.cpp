@@ -306,7 +306,7 @@ SEXP pirCompile(SEXP what, const Context& assumptions, const std::string& name,
     std::string const version_name = name + assumptions.getShortStringRepr();
     logger.title("Compiling " + version_name);
 
-    auto t0 = std::chrono::steady_clock::now();
+    auto t_compilation_start = std::chrono::steady_clock::now();
     pir::Compiler cmp(m, logger);
     pir::Backend backend(logger, name);
     cmp.compileClosure(what, name, assumptions, true,
@@ -316,7 +316,9 @@ SEXP pirCompile(SEXP what, const Context& assumptions, const std::string& name,
 
                            auto fun = backend.getOrCompile(c);
 
-                            ContextualProfiling::countSuccessfulCompilation(what,assumptions);
+                           auto compilation_end_t = std::chrono::steady_clock::now();
+                           std::chrono::duration<double, std::milli> cmp_dt_ms = compilation_end_t - t_compilation_start;
+                           ContextualProfiling::countCompilation(what, assumptions, true, cmp_dt_ms.count());
 
                            // Install
                            if (dryRun)
@@ -326,18 +328,20 @@ SEXP pirCompile(SEXP what, const Context& assumptions, const std::string& name,
                            DispatchTable::unpack(BODY(what))->insert(fun);
                        },
                        [&]() {
-                            ContextualProfiling::countFailedCompilation(what,assumptions);
+                            auto compilation_end_t = std::chrono::steady_clock::now();
+                            std::chrono::duration<double, std::milli> cmp_dt_ms = compilation_end_t - t_compilation_start;
+
+                            ContextualProfiling::countCompilation(what, assumptions, false, cmp_dt_ms.count());
                             if (debug.includes(pir::DebugFlag::ShowWarnings))
                                std::cerr << "Compilation failed\n";
                        },
                        {});
 
-    auto compilation_time = std::chrono::steady_clock::now() - t0;
-    auto compilation_time_s = std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(compilation_time);
+    std::chrono::duration<double, std::milli> compilation_time_ms = std::chrono::steady_clock::now() - t_compilation_start;
     {
         std::stringstream msg;
         msg << "Done compiling " << version_name << " (" <<
-         compilation_time_s.count() << "ms)";
+         compilation_time_ms.count() << "ms)";
         logger.title(msg.str());
     }
 
