@@ -23,6 +23,9 @@
 #include <memory>
 #include <string>
 
+#include <chrono>
+#include <ctime>
+
 using namespace rir;
 
 extern "C" Rboolean R_Visible;
@@ -304,14 +307,22 @@ SEXP pirCompile(SEXP what, const Context& assumptions, const std::string& name,
     logger.title("Compiling " + name);
     pir::Compiler cmp(m, logger);
     pir::Backend backend(logger, name);
+	auto start = std::chrono::system_clock::now();
+	std::chrono::duration<double> duration;
+
     cmp.compileClosure(what, name, assumptions, true,
                        [&](pir::ClosureVersion* c) {
                            logger.flush();
                            cmp.optimizeModule();
 
                            auto fun = backend.getOrCompile(c);
+							// Some computation here
+							auto end = std::chrono::system_clock::now();
 
-                            ContextualProfiling::countSuccessfulCompilation(what,assumptions);
+							duration = end - start;
+
+
+                            ContextualProfiling::countSuccessfulCompilation(what,assumptions,duration);
 
                            // Install
                            if (dryRun)
@@ -321,7 +332,10 @@ SEXP pirCompile(SEXP what, const Context& assumptions, const std::string& name,
                            DispatchTable::unpack(BODY(what))->insert(fun);
                        },
                        [&]() {
-                            ContextualProfiling::countFailedCompilation(what,assumptions);
+							auto end = std::chrono::system_clock::now();
+
+							duration = end - start;
+                            ContextualProfiling::countFailedCompilation(what,assumptions,duration);
                             if (debug.includes(pir::DebugFlag::ShowWarnings))
                                std::cerr << "Compilation failed\n";
                        },
