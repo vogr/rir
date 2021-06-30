@@ -37,10 +37,10 @@ bool profiling_enabled = []{
         std::string const compile_stats = out_dir + "/compile_stats.csv";
 
         file_call_stats.open(call_stats);
-        file_call_stats << "CALL_ID,FUN_ID,NAME,CALL_CONTEXT,VERSION,EXEC_TIME\n";
+        file_call_stats << "FUN_ID,NAME,CALL_CONTEXT,VERSION,EXEC_TIME\n";
 
         file_compile_stats.open(compile_stats);
-        file_compile_stats << "ID,NAME,VERSION,ID_CMP,SUCCESS,CMP_TIME\n";
+        file_compile_stats << "ID,VERSION,SUCCESS,CMP_TIME\n";
 
         return true;
     } else {
