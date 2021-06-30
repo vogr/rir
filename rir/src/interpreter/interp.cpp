@@ -10,10 +10,12 @@
 #include "runtime/LazyEnvironment.h"
 #include "runtime/TypeFeedback_inl.h"
 #include "safe_force.h"
+#include "utils/ContextualProfiler.h"
 #include "utils/Pool.h"
 #include "utils/measuring.h"
 
 #include <assert.h>
+#include <chrono>
 #include <deque>
 #include <libintl.h>
 #include <set>
@@ -1096,6 +1098,8 @@ RIR_INLINE SEXP rirCall(CallContext& call, InterpreterInstance* ctx) {
         call.suppliedArgs, call.stackArgs, call.ast);
 
     SEXP result;
+
+    auto t_exex_0 = std::chrono::steady_clock::now();
     if (!needsEnv) {
         // Default fast calling convention for pir, environment is created by
         // the callee
@@ -1111,6 +1115,9 @@ RIR_INLINE SEXP rirCall(CallContext& call, InterpreterInstance* ctx) {
         result =
             rirCallCallerProvidedEnv(call, fun, lazyPromargs.asSexp(), ctx);
     }
+
+    auto dt_exec = std::chrono::steady_clock::now() - t_exex_0;
+    ContextualProfiler::logCall(call.ast, *fun, call.givenContext, dt_exec);
 
     if (pir::Parameter::RIR_SERIALIZE_CHAOS) {
         UNPROTECT(1);

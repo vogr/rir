@@ -14,8 +14,10 @@
 #include "interpreter/interp_incl.h"
 #include "ir/BC.h"
 #include "ir/Compiler.h"
+#include "utils/ContextualProfiler.h"
 
 #include <cassert>
+#include <chrono>
 #include <cstdio>
 #include <list>
 #include <memory>
@@ -286,6 +288,8 @@ REXPORT SEXP pirSetDebugFlags(SEXP debugFlags) {
 
 SEXP pirCompile(SEXP what, const Context& assumptions, const std::string& name,
                 const pir::DebugOptions& debug) {
+    auto t_cmp_0 = std::chrono::steady_clock::now();
+
     if (!isValidClosureSEXP(what)) {
         Rf_error("not a compiled closure");
     }
@@ -302,6 +306,12 @@ SEXP pirCompile(SEXP what, const Context& assumptions, const std::string& name,
     logger.title("Compiling " + name);
     pir::Compiler cmp(m, logger);
     pir::Backend backend(logger, name);
+
+    auto log_cmp_end = [&](bool success) {
+        auto t_cmp = std::chrono::steady_clock::now() - t_cmp_0;
+        ContextualProfiler::logCompilation(what, assumptions, true, t_cmp);
+    };
+
     cmp.compileClosure(what, name, assumptions, true,
                        [&](pir::ClosureVersion* c) {
                            logger.flush();
@@ -315,12 +325,19 @@ SEXP pirCompile(SEXP what, const Context& assumptions, const std::string& name,
 
                            Protect p(fun->container());
                            DispatchTable::unpack(BODY(what))->insert(fun);
+
+                           log_cmp_end(true);
                        },
                        [&]() {
                            if (debug.includes(pir::DebugFlag::ShowWarnings))
                                std::cerr << "Compilation failed\n";
+
+                           log_cmp_end(false);
+
                        },
                        {});
+
+
 
     delete m;
     UNPROTECT(1);
