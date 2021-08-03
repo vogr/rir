@@ -96,13 +96,8 @@ namespace rir {
 
 			public:
 			FileLogger() {
-				// use ISO 8601 date as log name
-				time_t timenow = chrono::system_clock::to_time_t(chrono::system_clock::now());
-				stringstream runId_ss;
-				runId_ss << put_time( localtime( &timenow ), "%FT%T%z" );
-				string runId = runId_ss.str();
 
-				string out_dir = "profile/" + runId;
+				string out_dir = "profile";
 				mkdir(out_dir.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
 
 				string call_stats = out_dir + "/call_stats.csv";
