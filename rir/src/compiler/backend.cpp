@@ -73,12 +73,14 @@ static void approximateNeedsLdVarForUpdate(
         // These are builtins which ignore value semantics...
         case Tag::CallBuiltin: {
             auto b = CallBuiltin::Cast(i);
-            if (b->builtinId == blt(".Call")) {
+            bool dotCall = b->builtinId == blt(".Call");
+            if (dotCall || b->builtinId == blt("class<-")) {
                 if (auto l = LdVar::Cast(
                         b->callArg(0).val()->followCastsAndForce())) {
                     static std::unordered_set<SEXP> block = {
-                        Rf_install("C_R_set_slot")};
-                    if (block.count(l->varName)) {
+                        Rf_install("C_R_set_slot"),
+                        Rf_install("C_R_set_class")};
+                    if (!dotCall || block.count(l->varName)) {
                         apply(i, l);
                     }
                 }
@@ -238,6 +240,7 @@ static void lower(Code* code) {
         }
     });
 
+    std::vector<BB*> dead;
     Visitor::run(code->entry, [&](BB* bb) {
         auto it = bb->begin();
         while (it != bb->end()) {
@@ -245,12 +248,19 @@ static void lower(Code* code) {
             if (FrameState::Cast(*it)) {
                 next = bb->remove(it);
             } else if (Checkpoint::Cast(*it)) {
+                auto d = bb->deoptBranch();
                 next = bb->remove(it);
                 bb->convertBranchToJmp(true);
+                if (d->predecessors().size() == 0) {
+                    assert(d->successors().size() == 0);
+                    dead.push_back(d);
+                }
             }
             it = next;
         }
     });
+    for (auto bb : dead)
+        delete bb;
 
     BBTransform::mergeRedundantBBs(code);
 
@@ -397,7 +407,6 @@ rir::Function* Backend::doCompile(ClosureVersion* cls,
 
     if (MEASURE_COMPILER_BACKEND_PERF) {
         Measuring::countTimer("backend.cpp: pir2llvm");
-        Measuring::startTimer("backend.cpp: llvm");
     }
 
     log.finalPIR(cls);
@@ -409,7 +418,12 @@ rir::Function* Backend::doCompile(ClosureVersion* cls,
 
 Backend::LastDestructor::~LastDestructor() {
     if (MEASURE_COMPILER_BACKEND_PERF) {
-        Measuring::countTimer("backend.cpp: llvm");
+        Measuring::countTimer("backend.cpp: overal");
+    }
+}
+Backend::LastDestructor::LastDestructor() {
+    if (MEASURE_COMPILER_BACKEND_PERF) {
+        Measuring::startTimer("backend.cpp: overal");
     }
 }
 

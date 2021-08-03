@@ -9,6 +9,7 @@
 #include "compiler/compiler.h"
 #include "compiler/log/debug.h"
 #include "compiler/parameter.h"
+#include "compiler/pir/closure.h"
 #include "compiler/test/PirCheck.h"
 #include "compiler/test/PirTests.h"
 #include "interpreter/interp_incl.h"
@@ -311,39 +312,67 @@ SEXP pirCompile(SEXP what, const Context& assumptions, const std::string& name,
     auto t_compilation_start = std::chrono::steady_clock::now();
     pir::Compiler cmp(m, logger);
     pir::Backend backend(logger, name);
-    cmp.compileClosure(what, name, assumptions, true,
-                       [&](pir::ClosureVersion* c) {
-                           logger.flush();
-                           cmp.optimizeModule();
+    auto compile = [&](pir::ClosureVersion* c) {
+        logger.flush();
+        cmp.optimizeModule();
 
-                           auto fun = backend.getOrCompile(c);
+        auto compilation_end_t = std::chrono::steady_clock::now();
+        std::chrono::duration<double, std::milli> cmp_dt_ms = compilation_end_t - t_compilation_start;
+        ContextualProfiling::countCompilation(what, assumptions, true, cmp_dt_ms.count());
 
-                           auto compilation_end_t = std::chrono::steady_clock::now();
-                           std::chrono::duration<double, std::milli> cmp_dt_ms = compilation_end_t - t_compilation_start;
-                           ContextualProfiling::countCompilation(what, assumptions, true, cmp_dt_ms.count());
+        if (dryRun)
+            return;
 
-                           // Install
-                           if (dryRun)
-                               return;
+        rir::Function* done = nullptr;
+        auto apply = [&](SEXP body, pir::ClosureVersion* c) {
+            auto fun = backend.getOrCompile(c);
+            Protect p(fun->container());
+            DispatchTable::unpack(body)->insert(fun);
+            if (body == BODY(what))
+                done = fun;
+        };
+        m->eachPirClosureVersion([&](pir::ClosureVersion* c) {
+            if (c->owner()->hasOriginClosure()) {
+                auto cls = c->owner()->rirClosure();
+                auto body = BODY(cls);
+                auto dt = DispatchTable::unpack(body);
+                if (dt->contains(c->context())) {
+                    auto other = dt->dispatch(c->context());
+                    assert(other != dt->baseline());
+                    assert(other->context() == c->context());
+                    if (other->body()->isCompiled())
+                        return;
+                }
+                // Don't lower functions that have not been called often, as
+                // they have incomplete type-feedback.
+                if (dt->size() == 1 && dt->baseline()->invocationCount() < 2)
+                    return;
+                apply(body, c);
+            }
+        });
+        if (!done)
+            apply(BODY(what), c);
+        // Eagerly compile the main function
+        done->body()->nativeCode();
+    };
 
-                           Protect p(fun->container());
-                           DispatchTable::unpack(BODY(what))->insert(fun);
-                       },
+    bool successful_cmp = true;
+    cmp.compileClosure(what, name, assumptions, true, compile,
                        [&]() {
-                            auto compilation_end_t = std::chrono::steady_clock::now();
-                            std::chrono::duration<double, std::milli> cmp_dt_ms = compilation_end_t - t_compilation_start;
-
-                            ContextualProfiling::countCompilation(what, assumptions, false, cmp_dt_ms.count());
+                            successful_cmp = false;
                             if (debug.includes(pir::DebugFlag::ShowWarnings))
                                std::cerr << "Compilation failed\n";
                        },
                        {});
 
-    std::chrono::duration<double, std::milli> compilation_time_ms = std::chrono::steady_clock::now() - t_compilation_start;
+    auto compilation_end_t = std::chrono::steady_clock::now();
+    std::chrono::duration<double, std::milli> cmp_dt_ms = compilation_end_t - t_compilation_start;
+    ContextualProfiling::countCompilation(what, assumptions, successful_cmp, cmp_dt_ms.count());
+
     {
         std::stringstream msg;
         msg << "Done compiling " << version_name << " (" <<
-         compilation_time_ms.count() << "ms)";
+         cmp_dt_ms.count() << "ms)";
         logger.title(msg.str());
     }
 
@@ -391,6 +420,11 @@ REXPORT SEXP pirCompileWrapper(SEXP what, SEXP name, SEXP debugFlags,
 }
 
 REXPORT SEXP pirTests() {
+    if (pir::Parameter::PIR_OPT_LEVEL < 2) {
+        Rf_warning("pirCheck only runs with opt level 2");
+        return R_FalseValue;
+    }
+
     PirTests::run();
     return R_NilValue;
 }

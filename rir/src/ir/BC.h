@@ -26,6 +26,8 @@ BC BC::recordCall() { return BC(Opcode::record_call_); }
 BC BC::recordType() { return BC(Opcode::record_type_); }
 BC BC::recordTest() { return BC(Opcode::record_test_); }
 
+BC BC::asSwitchIdx() { return BC(Opcode::as_switch_idx_); }
+
 BC BC::popn(unsigned n) {
     ImmediateArguments i;
     i.i = n;
@@ -72,9 +74,19 @@ BC BC::ldvar(SEXP sym) {
     i.pool = Pool::insert(sym);
     return BC(Opcode::ldvar_, i);
 }
+
+BC BC::ldvarNoForce(SEXP sym) {
+    assert(TYPEOF(sym) == SYMSXP);
+    assert(strlen(CHAR(PRINTNAME(sym))));
+    ImmediateArguments i;
+    i.pool = Pool::insert(sym);
+    return BC(Opcode::ldvar_noforce_, i);
+}
+
 BC BC::ldvarCached(SEXP sym, uint32_t cacheSlot) {
     assert(TYPEOF(sym) == SYMSXP);
     assert(strlen(CHAR(PRINTNAME(sym))));
+    assert(cacheSlot != (uint32_t)-1);
     ImmediateArguments i;
     i.poolAndCache.poolIndex = Pool::insert(sym);
     i.poolAndCache.cacheIndex = cacheSlot;
@@ -83,6 +95,7 @@ BC BC::ldvarCached(SEXP sym, uint32_t cacheSlot) {
 BC BC::ldvarForUpdateCached(SEXP sym, uint32_t cacheSlot) {
     assert(TYPEOF(sym) == SYMSXP);
     assert(strlen(CHAR(PRINTNAME(sym))));
+    assert(cacheSlot != (uint32_t)-1);
     ImmediateArguments i;
     i.poolAndCache.poolIndex = Pool::insert(sym);
     i.poolAndCache.cacheIndex = cacheSlot;
@@ -148,6 +161,7 @@ BC BC::stvar(SEXP sym) {
 BC BC::stvarCached(SEXP sym, uint32_t cacheSlot) {
     assert(TYPEOF(sym) == SYMSXP);
     assert(strlen(CHAR(PRINTNAME(sym))));
+    assert(cacheSlot != (uint32_t)-1);
     ImmediateArguments i;
     i.poolAndCache.poolIndex = Pool::insert(sym);
     i.poolAndCache.cacheIndex = cacheSlot;

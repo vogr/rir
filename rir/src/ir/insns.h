@@ -33,6 +33,12 @@ DEF_INSTR(ldfun_, 1, 0, 1, 0)
 DEF_INSTR(ldvar_, 1, 0, 1, 0)
 
 /**
+ * ldvar_noforce_:: like ldvar.
+ * If a promise is found, it is not forced before it's returned
+ */
+DEF_INSTR(ldvar_noforce_, 1, 0, 1, 1)
+
+/**
  * ldvar_:: like ldvar.
  * Stores an additional immediate with a unique number for the cache bindings.
  */
@@ -192,6 +198,11 @@ DEF_INSTR(uplus_, 0, 1, 1, 0)
  * inc_ :: increment tos integer
  */
 DEF_INSTR(inc_, 0, 1, 1, 1)
+
+/**
+ * as_switch_idx_ :: silently convert tos to integer, -1 if non-int
+ */
+DEF_INSTR(as_switch_idx_, 0, 1, 1, 1)
 
 DEF_INSTR(sub_, 0, 2, 1, 0)
 DEF_INSTR(uminus_, 0, 1, 1, 0)

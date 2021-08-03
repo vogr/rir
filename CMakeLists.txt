@@ -7,7 +7,7 @@ set(R_HOME ${CMAKE_SOURCE_DIR}/external/custom-r)
 set(R_LIBRARY_TREE ${CMAKE_SOURCE_DIR}/packages)
 set(R_ROOT_DIR ${R_HOME})
 set(R_INCLUDE_DIR ${R_HOME}/include)
-set(LLVM_DIR ${CMAKE_SOURCE_DIR}/external/llvm-11)
+set(LLVM_DIR ${CMAKE_SOURCE_DIR}/external/llvm-12)
 
 set(R_COMMAND ${R_HOME}/bin/R)
 
@@ -54,8 +54,8 @@ set(CMAKE_C_FLAGS_DEBUG "-O0 -DENABLE_SLOWASSERT")
 set(CMAKE_C_FLAGS_DEBUGOPT "-Og -DENABLE_SLOWASSERT")
 set(CMAKE_C_FLAGS "-std=gnu99")
 
-set(CMAKE_CXX_FLAGS_SANITIZE "${CMAKE_CXX_FLAGS_DEBUGOPT} -fsanitize=undefined -fno-sanitize=alignment -fsanitize-undefined-trap-on-error -fstack-protector")
-set(CMAKE_C_FLAGS_SANITIZE "${CMAKE_C_FLAGS_DEBUGOPT} -fsanitize=undefined -fno-sanitize=alignment -fsanitize-undefined-trap-on-error -fstack-protector")
+set(CMAKE_CXX_FLAGS_SANITIZE "${CMAKE_CXX_FLAGS_RELEASE} -g2 -fno-omit-frame-pointer -fsanitize=undefined -fsanitize=address -fsanitize=leak -fno-sanitize=alignment -shared-libasan -fvisibility=default")
+set(CMAKE_C_FLAGS_SANITIZE "${CMAKE_C_FLAGS_RELEASE} -g2 -fno-omit-frame-pointer -fsanitize=undefined -fsanitize=address -fsanitize=leak -fno-sanitize=alignment -shared-libasan -fvisibility=default")
 
 MARK_AS_ADVANCED(
     CMAKE_CXX_FLAGS_SANITIZE
@@ -119,11 +119,13 @@ add_custom_target(setup-build-dir
 
 if(${MACOS_USE_GCC_9})
     add_custom_target(dependencies
-        COMMAND ${CMAKE_SOURCE_DIR}/tools/sync.sh --macos_gcc9
+        COMMAND ${CMAKE_SOURCE_DIR}/tools/build-gnur.sh --macos_gcc9
+        COMMAND ${CMAKE_SOURCE_DIR}/tools/fetch-llvm.sh --macos_gcc9
     )
 else()
     add_custom_target(dependencies
-        COMMAND ${CMAKE_SOURCE_DIR}/tools/sync.sh
+        COMMAND ${CMAKE_SOURCE_DIR}/tools/build-gnur.sh
+        COMMAND ${CMAKE_SOURCE_DIR}/tools/fetch-llvm.sh
     )
 endif()
 

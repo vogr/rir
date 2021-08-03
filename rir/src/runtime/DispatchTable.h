@@ -4,6 +4,7 @@
 #include "Function.h"
 #include "R/Serialize.h"
 #include "RirRuntimeObject.h"
+#include "utils/random.h"
 
 namespace rir {
 
@@ -74,7 +75,7 @@ struct DispatchTable
     bool contains(const Context& assumptions) const {
         for (size_t i = 0; i < size(); ++i)
             if (get(i)->context() == assumptions)
-                return true;
+                return !get(i)->body()->isDeoptimized;
         return false;
     }
 
@@ -131,7 +132,7 @@ struct DispatchTable
             Rf_error("dispatch table overflow");
 #endif
             // Evict one element and retry
-            auto pos = 1 + (std::rand() % (size() - 1));
+            auto pos = 1 + (Random::singleton()() % (size() - 1));
             size_--;
             while (pos < size()) {
                 setEntry(pos, getEntry(pos + 1));
@@ -185,14 +186,8 @@ struct DispatchTable
 
     void serialize(SEXP refTable, R_outpstream_t out) const {
         HashAdd(container(), refTable);
-        size_t n = 0;
-        for (size_t i = 0; i < size(); i++)
-            if (!get(i)->body()->nativeCode)
-                n++;
-        OutInteger(out, n);
-        for (size_t i = 0; i < size(); i++)
-            if (!get(i)->body()->nativeCode)
-                get(i)->serialize(refTable, out);
+        OutInteger(out, 1);
+        baseline()->serialize(refTable, out);
     }
 
     Context userDefinedContext() const { return userDefinedContext_; }

@@ -66,10 +66,10 @@ stopifnot(
   pir.check(function() {
       balls = c(1,2,3,4)
       for (i in 1:3){
-          balls[[i]] = 0 
+          balls[[i]] = 0
       }
       balls[[2]]
-  }, OneLdVar, warmup=function(f) f()))  
+  }, OneLdVar, warmup=function(f) f()))
 
 stopifnot(pir.check(function(x, y) print("Test"), IsPirCompilable))
 stopifnot(pir.check(function(x = 4) {
@@ -80,6 +80,14 @@ stopifnot(!pir.check(function(...) {
   print("PIR does support dotdotdot")
 }, IsPirCompilable))
 stopifnot(pir.check(function() 42L, Returns42L))
+
+
+if (Sys.getenv("PIR_OPT_LEVEL") != "" && as.integer(Sys.getenv("PIR_OPT_LEVEL")) < 1) {
+  warning("skipping rest of test since opt level < 2")
+  q()
+}
+
+
 stopifnot(pir.check(function() {
   f <- function() 42L
   f()
@@ -116,7 +124,7 @@ stopifnot(pir.check(function(depth) {
   else
     0
 }, NoEnvSpec, warmup=function(f){cat(".\n"); f(0)}))
-seed <- 1   
+seed <- 1
 stopifnot(pir.check(function(a) {
   seed <<- a
 }, NoEnvSpec))
@@ -191,8 +199,8 @@ stopifnot(pir.check(function() {
     q <- 1
   else {
     if (a)
-      q <- 3 
-    else 
+      q <- 3
+    else
       q <- 2
   }
   q
@@ -202,12 +210,19 @@ stopifnot(pir.check(function(a) {
     q <- 1
   else {
     if (a)
-      q <- 3 
-    else 
+      q <- 3
+    else
       q <- 2
   }
   q
 }, NoLoad))
+
+if (Sys.getenv("PIR_OPT_LEVEL") != "" && as.integer(Sys.getenv("PIR_OPT_LEVEL")) < 2) {
+  warning("skipping rest of test since opt level < 2")
+  q()
+}
+
+
 stopifnot(pir.check(function() {
   f <- function() 42L
   (function(x) x())(f)
@@ -279,7 +294,7 @@ mandelbrot <- function(size) {
 
 # TODO: FIXXXXX
 stopifnot(
-  pir.check(mandelbrot, NoExternalCalls, NoPromise, NoStore, warmup=function(f) {f(13);f(27)})
+  pir.check(mandelbrot, NoExternalCalls, NoPromise, warmup=function(f) {f(13);f(27)})
 )
 
 # New tests
@@ -420,7 +435,7 @@ stopifnot(!pir.check(function(a, b) {
     x <- i
   x
 }, NoColon, warmup=function(f) {f(a, b); f(a, b)}))
-                     
+
 # More dead instruction removal
 stopifnot(!pir.check(function(x) {
   x == 4
@@ -436,7 +451,7 @@ stopifnot(pir.check(function(x, y) {
   x + y
 }, NoEq, warmup=function(f)f(5L, 2L)))
 
-## Inline promises even when they escape only because of deopt 
+## Inline promises even when they escape only because of deopt
 nbodyPrologue <- function(args) {
   n = if (length(args)) 20 else 1000L
   n
@@ -469,7 +484,7 @@ stopifnot(
 
 emptyFor <- function(n) {
   for (i in 1:n) {
-    
+
   }
 }
 stopifnot(pir.check(emptyFor, OneAdd, AnAddIsNotNAOrNaN, warmup=function(f) {f(1000)}))
@@ -498,3 +513,7 @@ h <- function() {
   g(g(g(f()) + g(g(f()))) + g(40L))
 }
 stopifnot(pir.check(h, NoExternalCalls, Returns42L, warmup=function(h) {h();h()}))
+
+# checks range analysis
+f <- function(a,b) if (b > 0) a[b]
+stopifnot(pir.check(f, UnboxedExtract, warmup=function(f) f(1,1)))

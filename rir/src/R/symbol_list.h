@@ -59,6 +59,7 @@
     V(seq, "seq")                                                              \
     V(lapply, "lapply")                                                        \
     V(aslist, "as.list")                                                       \
+    V(ascharacter, "as.character")                                             \
     V(isvector, "is.vector")                                                   \
     V(substr, "substr")                                                        \
     V(Class, "class")                                                          \
@@ -86,6 +87,8 @@
     V(all, "all")                                                              \
     V(FUN, "FUN")                                                              \
     V(forceAndCall, "forceAndCall")                                            \
+    V(remove, "remove")                                                        \
+    V(rm, "rm")                                                                \
     V(Recall, "Recall")
 
 #endif // SYMBOLS_LIST_H_

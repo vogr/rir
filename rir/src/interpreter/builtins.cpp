@@ -1,6 +1,7 @@
 #include "builtins.h"
 #include "R/BuiltinIds.h"
 #include "R/Funtab.h"
+#include "compiler/util/safe_builtins_list.h"
 #include "interp.h"
 #include "runtime/LazyArglist.h"
 #include <algorithm>
@@ -8,6 +9,9 @@
 
 extern "C" {
 extern Rboolean R_Visible;
+SEXP R_subset3_dflt(SEXP, SEXP, SEXP);
+int R_DispatchOrEvalSP(SEXP call, SEXP op, const char* generic, SEXP args,
+                       SEXP rho, SEXP* ans);
 }
 
 namespace rir {
@@ -121,8 +125,51 @@ static IsVectorCheck whichIsVectorCheck(SEXP str) {
     return IsVectorCheck::unsupported;
 }
 
-SEXP tryFastSpecialCall(const CallContext& call, InterpreterInstance* ctx) {
+SEXP tryFastSpecialCall(CallContext& call, InterpreterInstance* ctx) {
+    auto nargs = call.passedArgs;
     switch (call.callee->u.primsxp.offset) {
+    case blt("substitute"): {
+        if (nargs != 1 || call.hasNames())
+            return nullptr;
+        return Rf_substitute(call.stackArg(0), call.callerEnv);
+    }
+    case blt("$"): {
+        auto x = call.stackArg(0);
+        auto s = call.stackArg(1);
+        if (TYPEOF(s) != PROMSXP)
+            return nullptr;
+        s = PREXPR(s);
+        if (auto c = Code::check(s))
+            s = c->trivialExpr;
+        if (TYPEOF(s) == SYMSXP)
+            s = PRINTNAME(s);
+        else if (TYPEOF(s) == STRSXP && XLENGTH(s) > 0)
+            s = STRING_ELT(s, 0);
+
+        if (nargs == 2 && s && TYPEOF(s) == CHARSXP) {
+            if (TYPEOF(x) == PROMSXP)
+                x = evaluatePromise(x, ctx, nullptr, true);
+
+            if (isObject(x)) {
+                ENSURE_NAMEDMAX(x);
+                SEXP ss = PROTECT(allocVector(STRSXP, 1));
+                SET_STRING_ELT(ss, 0, s);
+                auto args = CONS_NR(x, CONS_NR(ss, R_NilValue));
+                PROTECT(args);
+                SEXP ans;
+                if (R_DispatchOrEvalSP(call.ast, call.callee, "$", args,
+                                       materializeCallerEnv(call, ctx), &ans)) {
+                    UNPROTECT(2); /* args */
+                    if (NAMED(ans))
+                        ENSURE_NAMEDMAX(ans);
+                    return (ans);
+                }
+                UNPROTECT(2);
+            }
+            return R_subset3_dflt(x, s, call.ast);
+        }
+        return nullptr;
+    }
     case blt("forceAndCall"): {
 
         if (call.passedArgs < 2)
@@ -198,28 +245,144 @@ SEXP tryFastSpecialCall(const CallContext& call, InterpreterInstance* ctx) {
     return nullptr;
 }
 
-SEXP tryFastBuiltinCall(const CallContext& call, InterpreterInstance* ctx) {
-    SLOWASSERT(!call.hasNames());
+static constexpr size_t MAXARGS = 8;
 
-    static constexpr size_t MAXARGS = 8;
-    SEXP args[MAXARGS];
-    auto nargs = call.suppliedArgs;
+bool supportsFastBuiltinCall2(SEXP b, size_t nargs) {
+    if (nargs > 5)
+        return false;
 
-    if (nargs > MAXARGS)
-        return nullptr;
-
-    bool hasAttrib = false;
-    for (size_t i = 0; i < call.suppliedArgs; ++i) {
-        auto arg = call.stackArg(i);
-        if (TYPEOF(arg) == PROMSXP)
-            arg = evaluatePromise(arg);
-        if (arg == R_UnboundValue || arg == R_MissingArg)
-            return nullptr;
-        if (ATTRIB(arg) != R_NilValue)
-            hasAttrib = true;
-        args[i] = arg;
+    // This is a blocklist of builtins which tamper with the argslist in some
+    // bad way. This can be changing contents and assume they are protected, or
+    // leaking cons cells of the arglist (e.g. through the gengc_next pointers).
+    switch (b->u.primsxp.offset) {
+    // misc
+    case blt("registerNamespace"):
+    case blt("...length"):
+    case blt("...elt"):
+    case blt("strsplit"):
+    case blt("eval"):
+    // Injects args
+    case blt("standardGeneric"):
+    // because of fixup_NaRm
+    case blt("range"):
+    case blt("sum"):
+    case blt("min"):
+    case blt("max"):
+    case blt("prod"):
+    case blt("mean"):
+    case blt("any"):
+    case blt("all"):
+    // because of other SETCDR on the argslist
+    case blt("match.call"):
+    case blt(".subset"):
+    case blt(".subset2"):
+    case blt("$<-"):
+    case blt("NextMethod"):
+    case blt("options"):
+    case blt("&"):
+    case blt("|"):
+    case blt("attach"):
+    case blt("psort"):
+    // case blt("invisible"):
+    // because of longjmp
+    case blt("warning"):
+    case blt("stop"):
+    case blt(".dfltStop"):
+    case blt(".signalCondition"):
+    // SETCAR
+    case blt("%*%"):
+    case blt("match"):
+    case blt("crossprod"):
+    case blt("tcrossprod"):
+    case blt("comment<-"):
+    case blt("oldClass<-"):
+    case blt("names<-"):
+    case blt("dimnames<-"):
+    case blt("dim<-"):
+    case blt("levels<-"):
+    case blt("makeLazy"):
+    case blt("args"):
+    case blt("as.function.default"):
+    case blt("as.call"):
+    case blt("do.call"):
+    case blt("call"):
+    case blt("class<-"):
+    case blt("debug"):
+    case blt("undebug"):
+    case blt("isdebugged"):
+    case blt("debugonce"):
+    case blt("dump"):
+    case blt("browser"):
+    case blt("unclass"):
+    case blt("save"):
+    case blt("saveToConn"):
+    case blt("[<-"):
+    case blt("[[<-"):
+    // SET_TAG
+    case blt("cbind"):
+    case blt("rbind"):
+        return false;
+    default: {}
     }
+    return true;
+}
 
+
+static bool doesNotAccessEnv(SEXP b) {
+    return pir::SafeBuiltinsList::nonObject(b->u.primsxp.offset);
+}
+
+SEXP tryFastBuiltinCall2(CallContext& call, InterpreterInstance* ctx,
+                         size_t nargs, SEXP (&args)[MAXARGS]) {
+    assert(nargs <= 5);
+
+    {
+        SEXP arglist;
+        CCODE f = getBuiltin(call.callee);
+        SEXP res = nullptr;
+        auto env = doesNotAccessEnv(call.callee) ? R_BaseEnv : materializeCallerEnv(call, ctx);
+        switch (call.passedArgs) {
+        case 0: {
+            return f(call.ast, call.callee, R_NilValue, env);
+        }
+        case 1: {
+            FAKE_ARGS1(arglist, args[0]);
+            res = f(call.ast, call.callee, arglist, env);
+            CHECK_FAKE_ARGS1();
+            break;
+        }
+        case 2: {
+            FAKE_ARGS2(arglist, args[0], args[1]);
+            res = f(call.ast, call.callee, arglist, env);
+            CHECK_FAKE_ARGS2();
+            break;
+        }
+        case 3: {
+            FAKE_ARGS3(arglist, args[0], args[1], args[2]);
+            res = f(call.ast, call.callee, arglist, env);
+            CHECK_FAKE_ARGS3();
+            break;
+        }
+        case 4: {
+            FAKE_ARGS4(arglist, args[0], args[1], args[2], args[3]);
+            res = f(call.ast, call.callee, arglist, env);
+            CHECK_FAKE_ARGS4();
+            break;
+        }
+        case 5: {
+            FAKE_ARGS5(arglist, args[0], args[1], args[2], args[3], args[4]);
+            res = f(call.ast, call.callee, arglist, env);
+            CHECK_FAKE_ARGS5();
+            break;
+        }
+        }
+        return res;
+    }
+    return nullptr;
+}
+
+SEXP tryFastBuiltinCall1(const CallContext& call, InterpreterInstance* ctx,
+                         size_t nargs, bool hasAttrib, SEXP (&args)[MAXARGS]) {
     switch (call.callee->u.primsxp.offset) {
     case blt("is.logical"): {
         if (nargs != 1)
@@ -539,6 +702,9 @@ SEXP tryFastBuiltinCall(const CallContext& call, InterpreterInstance* ctx) {
         if (TYPEOF(args[0]) == STRSXP) {
             SEXP r = args[0];
             return r;
+        }
+        if (TYPEOF(args[0]) == SYMSXP) {
+            return ScalarString(PRINTNAME(args[0]));
         }
         if (IS_SIMPLE_SCALAR(args[0], INTSXP)) {
             auto i = INTEGER(args[0])[0];
@@ -869,7 +1035,7 @@ SEXP tryFastBuiltinCall(const CallContext& call, InterpreterInstance* ctx) {
     return nullptr;
 }
 
-bool supportsFastBuiltinCall(SEXP b) {
+bool supportsFastBuiltinCall(SEXP b, size_t nargs) {
     switch (b->u.primsxp.offset) {
     case blt("nargs"):
     case blt("length"):
@@ -911,10 +1077,45 @@ bool supportsFastBuiltinCall(SEXP b) {
     case blt("col"):
     case blt("row"):
     case blt("dim"):
+    case blt("$"):
         return true;
     default: {}
     }
     return false;
+}
+
+SEXP tryFastBuiltinCall(CallContext& call, InterpreterInstance* ctx) {
+    SLOWASSERT(!call.hasNames());
+
+    SEXP args[MAXARGS];
+    auto nargs = call.suppliedArgs;
+
+    if (nargs > MAXARGS)
+        return nullptr;
+
+    bool hasAttrib = false;
+    for (size_t i = 0; i < call.suppliedArgs; ++i) {
+        auto arg = call.stackArg(i);
+        if (TYPEOF(arg) == PROMSXP)
+            arg = evaluatePromise(arg);
+        if (arg == R_UnboundValue || arg == R_MissingArg)
+            return nullptr;
+        if (ATTRIB(arg) != R_NilValue)
+            hasAttrib = true;
+        args[i] = arg;
+    }
+
+    auto res = tryFastBuiltinCall1(call, ctx, nargs, hasAttrib, args);
+    if (res)
+        return res;
+
+    if (hasAttrib)
+        return nullptr;
+
+    if (!supportsFastBuiltinCall2(call.callee, nargs))
+        return nullptr;
+
+    return tryFastBuiltinCall2(call, ctx, nargs, args);
 }
 
 } // namespace rir

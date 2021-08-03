@@ -62,18 +62,18 @@ bool ElideEnvSpec::apply(Compiler&, ClosureVersion* cls, Code* code,
                         assert(!arg->type.maybePromiseWrapped());
                         TypeFeedback seen;
                         if (argi)
-                            seen = argi->typeFeedback;
+                            seen = argi->typeFeedback();
                         if (auto j = Instruction::Cast(arg->followCasts()))
                             if (seen.type.isVoid() ||
-                                (!j->typeFeedback.type.isVoid() &&
-                                 !seen.type.isA(j->typeFeedback.type)))
-                                seen = j->typeFeedback;
+                                (!j->typeFeedback().type.isVoid() &&
+                                 !seen.type.isA(j->typeFeedback().type)))
+                                seen = j->typeFeedback();
                         if (auto j =
                                 Instruction::Cast(arg->followCastsAndForce()))
                             if (seen.type.isVoid() ||
-                                (!j->typeFeedback.type.isVoid() &&
-                                 !seen.type.isA(j->typeFeedback.type)))
-                                seen = j->typeFeedback;
+                                (!j->typeFeedback().type.isVoid() &&
+                                 !seen.type.isA(j->typeFeedback().type)))
+                                seen = j->typeFeedback();
 
                         auto required = arg->type.notObject();
                         auto suggested = required;
@@ -170,7 +170,8 @@ bool ElideEnvSpec::apply(Compiler&, ClosureVersion* cls, Code* code,
                     if (std::find(allowed.begin(), allowed.end(), i->tag) ==
                             allowed.end() ||
                         !i->hasEnv() || i->env() != m ||
-                        (bt && !supportsFastBuiltinCall(bt->builtinSexp))) {
+                        (bt && !supportsFastBuiltinCall(bt->builtinSexp,
+                                                        bt->nCallArgs()))) {
                         bool ok = false;
                         if (auto mkarg = MkArg::Cast(i)) {
                             ok = Visitor::check(
@@ -279,9 +280,9 @@ bool ElideEnvSpec::apply(Compiler&, ClosureVersion* cls, Code* code,
                     for (auto env : check.second) {
                         if (!bannedEnvs.count(env)) {
                             auto condition = new IsEnvStub(env);
-                            BBTransform::insertAssume(condition, cp, true,
-                                                      env->typeFeedback.srcCode,
-                                                      nullptr);
+                            BBTransform::insertAssume(
+                                condition, cp, true,
+                                env->typeFeedback().srcCode, nullptr);
                             assert(cp->bb()->trueBranch() != bb);
                         }
                     }

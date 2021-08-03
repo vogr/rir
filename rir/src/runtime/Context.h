@@ -252,10 +252,10 @@ struct Context {
                typeFlags.includes(other.typeFlags);
     }
 
-    bool isImproving(rir::Function*) const;
-    bool isImproving(rir::pir::ClosureVersion*) const;
-    bool isImproving(const Context& other, bool hasDotsFormals,
-                     bool hasDefaultArgs) const;
+    unsigned isImproving(rir::Function*) const;
+    unsigned isImproving(rir::pir::ClosureVersion*) const;
+    unsigned isImproving(const Context& other, bool hasDotsFormals,
+                         bool hasDefaultArgs) const;
 
     static Context deserialize(SEXP refTable, R_inpstream_t inp);
     void serialize(SEXP refTable, R_outpstream_t out) const;
